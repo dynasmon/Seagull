@@ -8,7 +8,6 @@ function renderPanel(overrides: Partial<ComponentProps<typeof NetworkTopologyDis
   return renderToStaticMarkup(
     <NetworkTopologyDiscoveryPanel
       isAdmin={true}
-      agents={[{ agent_id: "agent-1", label: "agent-1" }]}
       selectedAgentId="agent-1"
       mode="passive_only"
       allowedCidrs={[]}
