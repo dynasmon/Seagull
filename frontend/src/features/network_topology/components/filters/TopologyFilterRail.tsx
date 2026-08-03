@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { EuiButtonGroup } from "@elastic/eui";
 
+import AgentFilter from "@/features/agents/components/AgentFilter";
 import { Button } from "@/shared/components/Button";
 import { CheckboxField } from "@/shared/components/CheckboxField";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
@@ -19,8 +20,6 @@ import {
 } from "../../lib/filtering/filters";
 import { NODE_TYPE_LABELS, SEVERITY_COLORS, nodeVisualByType } from "../../lib/presentation/visuals";
 import type { TopologyFacets, TopologyFilters, TopologyGroup, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../../types";
-
-type AgentOption = { value: string; label: string };
 
 type SectionProps = {
   title: string;
@@ -60,7 +59,6 @@ function toggle<T extends string>(arr: T[], value: T): T[] {
 
 type Props = {
   filters: TopologyFilters;
-  agentOptions: AgentOption[];
   groups: TopologyGroup[];
   dirty: boolean;
   applying: boolean;
@@ -73,7 +71,6 @@ type Props = {
 
 export function TopologyFilterRail({
   filters,
-  agentOptions,
   groups,
   dirty,
   applying,
@@ -107,11 +104,6 @@ export function TopologyFilterRail({
     (scope: TopologyIpScope) => onChange({ ip_scopes: toggle(filters.ip_scopes, scope) }),
     [filters.ip_scopes, onChange],
   );
-
-  const agentSelectOptions = [
-    { value: "", label: "All agents" },
-    ...agentOptions,
-  ];
 
   const timeWindowOptions = TOPOLOGY_TIME_WINDOWS.map((tw) => ({
     value: String(tw.value),
@@ -320,15 +312,7 @@ export function TopologyFilterRail({
       </FilterSection>
 
       <FilterSection title="Agent" defaultOpen={false}>
-        <SelectInput
-          value={filters.agent_id}
-          onChange={(e) => onChange({ agent_id: e.target.value })}
-          className="h-7 text-[12px]"
-        >
-          {agentSelectOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </SelectInput>
+        <AgentFilter value={filters.agent_id} onChange={(agentId) => onChange({ agent_id: agentId })} fullWidth />
       </FilterSection>
 
       <FilterSection title="Time Window" defaultOpen={false}>
