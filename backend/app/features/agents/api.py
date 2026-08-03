@@ -189,11 +189,12 @@ def set_agent_config(
 @router.post("/heartbeat", response_model=AgentProtocolOut)
 def agent_heartbeat(
     payload: AgentHeartbeatIn,
+    request: Request,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
     with managed_session(db) as db_session:
-        return service.heartbeat(db_session, payload=payload, agent=agent)
+        return service.heartbeat(db_session, payload=payload, agent=agent, request=request)
 
 
 @router.get("/config")
