@@ -21,6 +21,7 @@ import { ipContextFromFlatFields, resolveIpClassification } from "@/shared/lib/i
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAgentsCatalog } from "@/app/providers";
+import AgentFilter from "@/features/agents/components/AgentFilter";
 
 import { EventsLinkButton } from "../../components/EventsLinkButton";
 import { getSshSummary } from "./api";
@@ -312,11 +313,6 @@ export default function SshInsightsPage() {
     return { success, failed, invalid, actions, uniqueIps, enriched, enrichPct };
   }, [data]);
 
-  const agentOptions = useMemo(() => {
-    const rows = (agents ?? []).slice().sort((a, b) => a.agent_id.localeCompare(b.agent_id));
-    return rows;
-  }, [agents]);
-
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
     for (const a of agents || []) {
@@ -408,14 +404,14 @@ export default function SshInsightsPage() {
         <div className="lg:col-span-4">
           <Card title="Filters">
             <div className="grid grid-cols-1 gap-3">
-              <MiniSelect label="Agent" value={view.agent_id} onChange={(v) => setView((prev) => ({ ...prev, agent_id: v }))}>
-                <option value="">All agents</option>
-                {agentOptions.map((a) => (
-                  <option key={a.agent_id} value={a.agent_id}>
-                    {a.agent_id}
-                  </option>
-                ))}
-              </MiniSelect>
+              <label className="flex flex-col gap-1">
+                <FieldLabel>Agent</FieldLabel>
+                <AgentFilter
+                  value={view.agent_id}
+                  onChange={(agentId) => setView((prev) => ({ ...prev, agent_id: agentId }))}
+                  fullWidth
+                />
+              </label>
 
               <MiniSelect
                 label="Lookback"
