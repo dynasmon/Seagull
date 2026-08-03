@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useAgentsCatalog } from "@/app/providers";
+import AgentFilter from "@/features/agents/components/AgentFilter";
+import { agentScopeLabel } from "@/features/agents/lib/identity";
 import AsyncState from "@/shared/components/AsyncState";
 import { MetricCard } from "@/shared/components/MetricCard";
 import { Badge } from "@/shared/components/Badge";
@@ -11,7 +13,6 @@ import EmptyState from "@/shared/components/EmptyState";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
-import { SelectInput } from "@/shared/components/SelectInput";
 import { Table, type Column } from "@/shared/components/Table";
 import { Tabs } from "@/shared/components/Tabs";
 import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
@@ -236,21 +237,16 @@ export default function ProtocolIntelPage() {
     return map;
   }, [agents]);
 
-  const agentOptions = useMemo(() => {
-    return (agents || []).map((a) => ({ agent_id: a.agent_id, display_name: a.display_name || a.agent_id }));
-  }, [agents]);
-
   // Guard against stale persisted agent filters.
   // If the selected agent no longer exists, fallback to "All agents".
   useEffect(() => {
     const selected = (view.agent_id || "").trim();
     if (!selected) return;
-    if ((agentOptions?.length ?? 0) <= 0) return;
-    const exists = agentOptions.some((a) => a.agent_id === selected);
-    if (exists) return;
+    if (agents.length <= 0) return;
+    if (agents.some((a) => a.agent_id === selected)) return;
     setView((cur) => (cur.agent_id ? { ...cur, agent_id: "" } : cur));
     setDraft((cur) => (cur.agent_id ? { ...cur, agent_id: "" } : cur));
-  }, [agentOptions, view.agent_id]);
+  }, [agents, view.agent_id]);
 
   const reqSeq = useRef(0);
   const didBootRef = useRef(false);
@@ -481,7 +477,7 @@ export default function ProtocolIntelPage() {
           { label: "HTTP events", value: data ? data.http_events : "-" },
           { label: "TLS/DTLS/QUIC", value: data ? data.tls_events : "-" },
           { label: "Generated at", value: generatedAt },
-          { label: "Scope", value: view.agent_id || "all agents", hint: `Lookback ${view.since_minutes}m` },
+          { label: "Scope", value: agentScopeLabel(agents, view.agent_id), hint: `Lookback ${view.since_minutes}m` },
           { label: "Top-N", value: view.top_n, hint: view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual refresh" },
         ]}
       />
@@ -492,22 +488,15 @@ export default function ProtocolIntelPage() {
             <div className="space-y-3">
               <div>
                 <FieldLabel>Agent</FieldLabel>
-                <SelectInput
+                <AgentFilter
                   value={draft.agent_id}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setDraft((s) => ({ ...s, agent_id: v }));
-                    setView((cur) => ({ ...cur, agent_id: v }));
+                  onChange={(agentId) => {
+                    setDraft((s) => ({ ...s, agent_id: agentId }));
+                    setView((cur) => ({ ...cur, agent_id: agentId }));
                   }}
-                  className="mt-1 font-mono text-[11.5px]"
-                >
-                  <option value="">All agents</option>
-                  {agentOptions.map((a) => (
-                    <option key={a.agent_id} value={a.agent_id}>
-                      {a.display_name}
-                    </option>
-                  ))}
-                </SelectInput>
+                  fullWidth
+                  className="mt-1"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
