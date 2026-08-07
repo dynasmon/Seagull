@@ -8,6 +8,7 @@ import { Table, type Column, type TableSortState } from "@/shared/components/Tab
 import { useSeverityChartColors } from "@/shared/components/charts/chartTheme";
 import type { SeverityLevel } from "@/shared/lib/severity";
 
+import { CountryLabel } from "../CountryFlag";
 import type { ThreatGeoRankCountry, ThreatGeoRankIp } from "../types";
 
 function severityLevel(severity: string | null | undefined): SeverityLevel {
@@ -35,7 +36,7 @@ function CountryRankList({ rows, empty }: { rows: ThreatGeoRankCountry[]; empty:
             <div className="flex items-center justify-between gap-2 text-xs">
               <span className="inline-flex min-w-0 items-center gap-2">
                 <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-                <span className="font-medium text-foreground">{row.country}</span>
+                <CountryLabel country={row.country} className="font-medium text-foreground" />
                 <span className="text-muted-foreground">{row.unique_ips.toLocaleString()} IPs</span>
               </span>
               <span className="font-mono text-foreground">{row.count.toLocaleString()}</span>
@@ -85,7 +86,11 @@ function IpRankTable({
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <IpAddressPill ip={row.ip} compact />
-                {row.country ? <Badge variant={severityLevel(row.severity)}>{row.country}</Badge> : null}
+                {row.country ? (
+                  <Badge variant={severityLevel(row.severity)}>
+                    <CountryLabel country={row.country} />
+                  </Badge>
+                ) : null}
               </div>
               {org ? (
                 <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={org}>
