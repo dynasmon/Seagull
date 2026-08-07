@@ -1,5 +1,9 @@
 import asyncio
 import logging
+import multiprocessing
+import os
+import signal
+import sys
 import time
 from contextlib import asynccontextmanager
 
@@ -15,7 +19,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.db import engine, read_router, start_replica_monitor, stop_replica_monitor
-from app.core.db.lifecycle import ensure_database_ready
+from app.core.db.lifecycle import FatalStartupError, ensure_database_ready
 from app.core.db.locks import advisory_lock
 from app.core.db.model_registry import load_all_models
 from app.core.integrations.clickhouse import (
@@ -136,10 +140,34 @@ async def _shutdown() -> None:
     stop_replica_monitor()
 
 
+_FATAL_STARTUP_EXIT_CODE = 3
+
+
+def _report_fatal_startup(exc: BaseException) -> None:
+    log_event(logger, "error", "startup_failed_fatal", reason=str(exc))
+    print(f"\nFATAL: seagull backend cannot start.\n\n{exc}\n", file=sys.stderr, flush=True)
+
+
+def _abort_supervised_worker() -> None:
+    if multiprocessing.parent_process() is None:
+        return
+    try:
+        os.kill(os.getppid(), signal.SIGTERM)
+    except OSError:
+        pass
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    os._exit(_FATAL_STARTUP_EXIT_CODE)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     try:
         _startup()
+    except FatalStartupError as exc:
+        _report_fatal_startup(exc)
+        _abort_supervised_worker()
+        raise
     except Exception as exc:
         logger.exception("startup_failed: %s", exc)
         raise
