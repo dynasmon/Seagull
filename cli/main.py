@@ -343,7 +343,8 @@ def cmd_db(args: argparse.Namespace) -> int:
     if sub == "current":
         return _compose.run(
             _compose.STACK_FILES,
-            ["run", "--rm", "--build", "seagull-backend", "python", "-m", "alembic", "current"],
+            ["run", "--rm", "--build", "seagull-backend",
+             "python", "-m", "app.core.db.schema_report"],
         ).returncode
     print(f"[seagull] unknown db subcommand: {sub}", file=sys.stderr)
     return 1
@@ -561,7 +562,7 @@ def _build_parser() -> argparse.ArgumentParser:
     db_p = sub.add_parser("db", help="database migration operations")
     db_sub = db_p.add_subparsers(dest="db_cmd", metavar="db_cmd")
     db_sub.add_parser("upgrade", help="run alembic upgrade head")
-    db_sub.add_parser("current", help="show current alembic revision")
+    db_sub.add_parser("current", help="compare the database revision against this build's head")
 
     sub.add_parser("lint", help="lint backend and frontend")
 
