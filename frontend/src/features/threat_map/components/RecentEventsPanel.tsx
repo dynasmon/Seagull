@@ -3,6 +3,7 @@ import { Panel } from "@/shared/components/Panel";
 import { useSeverityChartColors } from "@/shared/components/charts/chartTheme";
 import type { SeverityLevel } from "@/shared/lib/severity";
 
+import { CountryLabel } from "../CountryFlag";
 import type { ThreatGeoRecentEvent } from "../types";
 
 function severityLevel(severity: string | null | undefined): SeverityLevel {
@@ -19,9 +20,10 @@ function fmtTime(iso: string): string {
   return date.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function locationLabel(event: ThreatGeoRecentEvent): string {
-  if (!event.country) return "—";
-  return event.city ? `${event.city} · ${event.country}` : event.country;
+function locationText(event: ThreatGeoRecentEvent): string {
+  const code = (event.country ?? "").trim().toUpperCase();
+  if (!code) return "—";
+  return event.city ? `${event.city} · ${code}` : code;
 }
 
 export function RecentEventsPanel({ events }: { events: ThreatGeoRecentEvent[] }) {
@@ -57,7 +59,7 @@ export function RecentEventsPanel({ events }: { events: ThreatGeoRecentEvent[] }
                 {event.dst_port != null ? `:${event.dst_port}` : ""}
               </span>
               <span className="hidden w-36 shrink-0 truncate text-muted-foreground md:inline">
-                {locationLabel(event)}
+                <CountryLabel country={event.country} text={locationText(event)} />
               </span>
               <span className="w-16 shrink-0 text-right text-[10px] uppercase tracking-wide text-muted-foreground/80">
                 {event.direction}
