@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -8,8 +9,50 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const proxyTarget = process.env.SEAGULL_API_PROXY_TARGET || "http://seagull-backend:8000"
 
+const FLAG_ROUTE = "/flags/3x2/"
+const FLAG_FILE = /^[A-Z]{2}\.svg$/
+const flagSourceDir = path.resolve(__dirname, "node_modules/country-flag-icons/3x2")
+
+function countryFlagAssets(): Plugin {
+  return {
+    name: "seagull-country-flag-assets",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url ?? "").split("?")[0]
+        if (!url.startsWith(FLAG_ROUTE)) return next()
+
+        const name = path.basename(url)
+        if (!FLAG_FILE.test(name)) return next()
+
+        fs.readFile(path.join(flagSourceDir, name), (error, body) => {
+          if (error) return next()
+          res.setHeader("Content-Type", "image/svg+xml")
+          res.setHeader("Cache-Control", "public, max-age=3600")
+          res.end(body)
+        })
+      })
+    },
+    generateBundle() {
+      const names = fs.readdirSync(flagSourceDir).filter((name) => FLAG_FILE.test(name))
+      if (names.length === 0) {
+        this.error(
+          `No country flags found in ${flagSourceDir}. ` +
+            "Install dependencies (npm ci) before building the frontend.",
+        )
+      }
+      for (const name of names) {
+        this.emitFile({
+          type: "asset",
+          fileName: `flags/3x2/${name}`,
+          source: fs.readFileSync(path.join(flagSourceDir, name)),
+        })
+      }
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), countryFlagAssets()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
