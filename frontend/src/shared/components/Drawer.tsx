@@ -18,7 +18,7 @@ export default function Drawer({
   closeOnOverlayClick = true,
 }: {
   open: boolean;
-  title: string;
+  title: ReactNode;
   description?: string;
   onClose: () => void;
   children: ReactNode;

@@ -15,6 +15,8 @@ import { useSeverityChartColors } from "@/shared/components/charts/chartTheme";
 import type { SeverityLevel } from "@/shared/lib/severity";
 
 import { toSeverityLevel } from "./globeTheme";
+import { CountryLabel } from "../CountryFlag";
+import { countryLabelText } from "../countryDisplay";
 import { normalizeCountryCode } from "../useCountryAggregations";
 import type { ThreatGeoIp, ThreatGeoPoint } from "../types";
 
@@ -50,8 +52,9 @@ const SEVERITY_LABELS: Record<SeverityLevel, string> = {
 };
 
 function placeLabel(point: ThreatGeoPoint): string {
-  const place = [point.city, point.region].filter(Boolean)[0];
-  return place || point.country || "Unknown location";
+  const place = [point.city, point.region].filter(Boolean)[0] || point.country;
+  if (!place) return "Unknown location";
+  return countryLabelText(point.country, place);
 }
 
 function formatRelativeTime(iso: string | null | undefined): string {
@@ -206,7 +209,13 @@ export function CountryDetailDrawer({
         key: "location",
         title: "City / Region",
         sortable: true,
-        render: (point) => <span className="font-medium text-foreground">{placeLabel(point)}</span>,
+        render: (point) => (
+          <CountryLabel
+            country={point.country}
+            text={placeLabel(point)}
+            className="font-medium text-foreground"
+          />
+        ),
       },
       {
         key: "unique_ips",
@@ -280,7 +289,13 @@ export function CountryDetailDrawer({
     <Drawer
       open={selection !== null}
       headerLabel="Country"
-      title={selection?.name ?? selection?.code ?? "Country"}
+      title={
+        selection ? (
+          <CountryLabel country={selection.code} text={selection.name || selection.code} />
+        ) : (
+          "Country"
+        )
+      }
       description={description}
       onClose={onClose}
       widthClassName="w-[560px]"

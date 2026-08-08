@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { Fragment, lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { useEuiTheme } from "@elastic/eui";
 
 import EmptyState from "@/shared/components/EmptyState";
@@ -18,6 +18,7 @@ import { ThreatRankPanels } from "./components/ThreatRankPanels";
 import { RecentEventsPanel } from "./components/RecentEventsPanel";
 import CountryDetailDrawer, { type CountrySelection } from "./components/CountryDetailDrawer";
 import type { DirectionFilter } from "./components/ThreatGlobe";
+import { CountryLabel } from "./CountryFlag";
 import { useThreatGeo } from "./useThreatGeo";
 import type { ThreatSourceMode } from "./types";
 
@@ -138,9 +139,14 @@ export default function ThreatMapPage() {
         .join(" · ")
     : null;
 
-  const bannerMessage = data
+  const bannerParts: ReactNode[] = data
     ? [
-        data.home?.label ? `home ${data.home.label}` : null,
+        data.home?.label ? (
+          <span className="inline-flex items-center gap-1.5">
+            home
+            <CountryLabel country={data.home.country} text={data.home.label} />
+          </span>
+        ) : null,
         `${data.located_ips.toLocaleString()} located`,
         `${data.unlocated_ips.toLocaleString()} unlocated`,
         `${data.total_alerts.toLocaleString()} alerts`,
@@ -149,10 +155,19 @@ export default function ThreatMapPage() {
         windowLabel.toLowerCase(),
         data.meta.cache_hit ? "cache" : null,
         error ? "refresh error" : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : null;
+      ].filter(Boolean)
+    : [];
+
+  const bannerMessage = bannerParts.length ? (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      {bannerParts.map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 ? <span aria-hidden>·</span> : null}
+          {part}
+        </Fragment>
+      ))}
+    </span>
+  ) : null;
 
   const overlay = !data
     ? isLoading
