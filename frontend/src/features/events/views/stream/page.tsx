@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { EuiFacetButton, EuiFacetGroup } from "@elastic/eui";
 
 import { Button } from "@/shared/components/Button";
@@ -7,7 +7,6 @@ import {
   DataQueryStateBanner,
   DataStatsStrip,
   DataTableSkeleton,
-  DataViewToolbar,
 } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
@@ -63,6 +62,11 @@ const DEFAULTS: ViewCfg = {
   limit: 200,
   event_id: null,
 };
+
+const INSIGHTS_OPEN_KEY = "nw_events_stream_insights_v1";
+const INSIGHTS_PANEL_HEIGHT = 168;
+const STREAM_MIN_HEIGHT = 380;
+const STREAM_BOTTOM_GUTTER = 16;
 
 const DEFAULT_DISPLAY: DisplayCfg = {
   auto_refresh: true,
@@ -172,7 +176,7 @@ function TopList({
   );
 }
 
-function SmallToggle({
+function DisplayToggle({
   label,
   checked,
   onChange,
@@ -184,11 +188,61 @@ function SmallToggle({
   hint?: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2">
+    <span className="inline-flex items-center" title={hint}>
       <ToggleSwitch label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      {hint ? <div className="mt-1 text-[10.5px] text-muted-foreground">{hint}</div> : null}
-    </div>
+    </span>
   );
+}
+
+function findScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let node = el?.parentElement ?? null;
+  while (node) {
+    const overflowY = window.getComputedStyle(node).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function useViewportFillHeight(ref: RefObject<HTMLElement>, minHeight: number) {
+  const [height, setHeight] = useState(minHeight);
+
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    const scroller = findScrollParent(el);
+    if (!scroller) {
+      setHeight(Math.max(minHeight, Math.round(window.innerHeight - rect.top - STREAM_BOTTOM_GUTTER)));
+      return;
+    }
+
+    const scrollerRect = scroller.getBoundingClientRect();
+    const visibleHeight = Math.min(scrollerRect.bottom, window.innerHeight) - Math.max(scrollerRect.top, 0);
+    const offset = rect.top - scrollerRect.top + scroller.scrollTop;
+    setHeight(Math.max(minHeight, Math.round(visibleHeight - offset - STREAM_BOTTOM_GUTTER)));
+  }, [minHeight, ref]);
+
+  useEffect(measure);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+
+    const scroller = findScrollParent(el);
+    const observer = new ResizeObserver(measure);
+    if (el.parentElement) observer.observe(el.parentElement);
+    if (scroller) observer.observe(scroller);
+    window.addEventListener("resize", measure);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [measure, ref]);
+
+  return height;
 }
 
 export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }: EventsStreamPageProps = {}) {
@@ -211,6 +265,15 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
     DEFAULT_DISPLAY,
     sanitizeDisplay
   );
+
+  const [insightsOpen, setInsightsOpen] = usePersistentState<boolean>(
+    INSIGHTS_OPEN_KEY,
+    false,
+    (raw) => raw === true
+  );
+
+  const streamRef = useRef<HTMLDivElement>(null);
+  const streamHeight = useViewportFillHeight(streamRef, STREAM_MIN_HEIGHT);
 
   const parseQuery = useCallback(
     (sp: URLSearchParams): ViewCfg => {
@@ -536,8 +599,17 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
     return `Events${suffix}${src}${ago ? ` · updated ${ago}` : ""}${isRefreshing ? " · refreshing" : ""}`;
   }, [error, isInitialLoading, isRefreshing, lastUpdatedAt, queryMeta, sortedEvents.length]);
 
-  const toolbarRight = (
-    <div className="flex items-center gap-2">
+  const viewActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant={insightsOpen ? "secondary" : "subtle"}
+        size="md"
+        onClick={() => setInsightsOpen((prev) => !prev)}
+        title="Toggle the type/source/destination breakdown above the stream"
+      >
+        {insightsOpen ? "Hide insights" : "Show insights"}
+      </Button>
+
       <Button variant="subtle" size="md" onClick={() => void load()} title="Refresh now">
         Refresh
       </Button>
@@ -577,142 +649,170 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
   );
 
   return (
-    <div className="space-y-4 min-w-0">
-      <DataViewToolbar
-        left={<div className="text-sm font-semibold tracking-tight">{moduleTitle || "Event Stream"}</div>}
-        right={toolbarRight}
-      />
+    <div className="flex min-w-0 flex-col gap-3">
+      <Panel padded={false} className="min-w-0">
+        <EventsFilters
+          agents={agentOptions}
+          busy={isInitialLoading}
+          value={filtersValue}
+          lockEventType={pinnedEventType || null}
+          hideEventType={ddosScope}
+          onChange={onFiltersChange}
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-border/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <DisplayToggle
+              label="Details column"
+              checked={display.show_extra}
+              onChange={(v) => patchDisplay({ show_extra: v })}
+              hint="Adds a compact details column (rule/user/pps/entropy)."
+            />
+            <DisplayToggle
+              label="Compact rows"
+              checked={tablePrefs.compact}
+              onChange={(v) => tablePrefs.setCompact(v)}
+              hint="Tighter table spacing for high-volume streams."
+            />
+            <DisplayToggle
+              label="Auto refresh"
+              checked={display.auto_refresh}
+              onChange={(v) => patchDisplay({ auto_refresh: v })}
+              hint={display.auto_refresh ? "Uses the shared operational live cadence." : "Manual refresh only."}
+            />
+            <span className="font-mono text-[10.5px] text-muted-foreground">
+              {display.auto_refresh
+                ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback`
+                : "manual refresh only"}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Sort
+              </span>
+              <span className="w-[188px]">
+                <SelectInput
+                  value={`${tablePrefs.sort?.key || "timestamp"}:${tablePrefs.sort?.direction || "desc"}`}
+                  onChange={(e) => {
+                    const [key, direction] = e.target.value.split(":");
+                    tablePrefs.setSort({ key, direction: direction === "asc" ? "asc" : "desc" });
+                  }}
+                  className="font-mono text-[11.5px]"
+                  title="Sort visible rows"
+                >
+                  <option value="timestamp:desc">Time (newest first)</option>
+                  <option value="timestamp:asc">Time (oldest first)</option>
+                  <option value="event_type:asc">Type (A-Z)</option>
+                  <option value="agent_id:asc">Agent (A-Z)</option>
+                  <option value="src_ip:asc">Source IP (A-Z)</option>
+                </SelectInput>
+              </span>
+            </label>
+
+            {viewActions}
+          </div>
+        </div>
+      </Panel>
 
       <DataStatsStrip
         stats={[
-          { label: "Visible events", value: sortedEvents.length },
-          { label: "Agents in scope", value: uniqAgents },
-          { label: "Top source", value: topSrc[0]?.key || "-", hint: topSrc[0] ? `${topSrc[0].count} events` : "No data" },
-          { label: "Top type", value: typeCounts[0]?.key || "-", hint: typeCounts[0] ? `${typeCounts[0].count} events` : "No data" },
+          {
+            label: "Visible events",
+            value: sortedEvents.length,
+            hint: `limit ${view.limit}${hasMore ? " · older events available" : ""}`,
+          },
+          {
+            label: "Agents in scope",
+            value: uniqAgents,
+            hint: agentScopeLabel(agents, view.agent_id),
+          },
+          {
+            label: "Event types",
+            value: typeCounts.length,
+            hint: typeCounts[0] ? `${typeCounts[0].key} leads with ${typeCounts[0].count}` : "No data",
+          },
           {
             label: "Live status",
             value: liveSurface.label,
-            hint: `${liveSurface.transport ?? "poll"}${lastUpdatedAt ? ` · ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}`,
+            tone: liveSurface.tone === "muted" ? "default" : liveSurface.tone,
+            hint: `${liveSurface.transport ?? "poll"}${
+              lastUpdatedAt ? ` · updated ${fmtTimeAgo(Date.now() - lastUpdatedAt) || "just now"}` : ""
+            }`,
           },
         ]}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-4 min-h-0">
-        <div className="space-y-4 min-h-0">
+      {insightsOpen ? (
+        <div className="grid min-w-0 gap-3 lg:grid-cols-3">
           <Panel
-            title="Filters"
-            actions={<span className="text-[10px] font-mono text-muted-foreground">{agentScopeLabel(agents, view.agent_id)}</span>}
+            title="Event types"
+            actions={
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {ddosScope
+                  ? "locked: DDoS scope"
+                  : pinnedEventType
+                  ? `locked: ${pinnedEventType}`
+                  : view.event_type || "all types"}
+              </span>
+            }
+            compact
+            scrollY
+            style={{ height: INSIGHTS_PANEL_HEIGHT }}
           >
-            <EventsFilters
-              agents={agentOptions}
-              busy={isInitialLoading}
-              value={filtersValue}
-              lockEventType={pinnedEventType || null}
-              hideEventType={ddosScope}
-              onChange={onFiltersChange}
-            />
-          </Panel>
-
-          <Panel title="Display" actions={<span className="text-[10px] font-mono text-muted-foreground">{uniqAgents} agents</span>}>
-            <div className="space-y-3">
-              <SmallToggle
-                label="Show details column"
-                checked={display.show_extra}
-                onChange={(v) => patchDisplay({ show_extra: v })}
-                hint="Adds a compact details column (rule/user/pps/entropy)."
-              />
-              <SmallToggle
-                label="Compact rows"
-                checked={tablePrefs.compact}
-                onChange={(v) => tablePrefs.setCompact(v)}
-                hint="Tighter table spacing for high-volume streams."
-              />
-              <SmallToggle
-                label="Auto refresh"
-                checked={display.auto_refresh}
-                onChange={(v) => patchDisplay({ auto_refresh: v })}
-                hint={display.auto_refresh ? "Uses the shared operational live cadence." : "Manual refresh only."}
-              />
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Refresh</div>
-                  <div className="mt-1 inline-flex h-9 w-full items-center rounded-md border border-border bg-surface-2 px-3 font-mono text-[11px] text-muted-foreground">
-                    {display.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Sort</div>
-                  <SelectInput
-                    value={`${tablePrefs.sort?.key || "timestamp"}:${tablePrefs.sort?.direction || "desc"}`}
-                    onChange={(e) => {
-                      const [key, direction] = e.target.value.split(":");
-                      tablePrefs.setSort({ key, direction: direction === "asc" ? "asc" : "desc" });
-                    }}
-                    className="mt-1 font-mono text-[11.5px]"
-                    title="Sort visible rows"
-                  >
-                    <option value="timestamp:desc">Time (newest first)</option>
-                    <option value="timestamp:asc">Time (oldest first)</option>
-                    <option value="event_type:asc">Type (A-Z)</option>
-                    <option value="agent_id:asc">Agent (A-Z)</option>
-                    <option value="src_ip:asc">Source IP (A-Z)</option>
-                  </SelectInput>
-                </div>
+            {pinnedEventType || ddosScope ? (
+              <div className="text-[12px] text-muted-foreground">
+                {ddosScope
+                  ? "Type filtering is locked to preserve the DDoS semantic scope."
+                  : "Type filtering is locked for this module."}
               </div>
-            </div>
-          </Panel>
-
-          {!pinnedEventType && !ddosScope ? (
-            <Panel
-              title="Explorer"
-              actions={<span className="text-[10px] font-mono text-muted-foreground">{view.event_type ? `Type: ${view.event_type}` : "All types"}</span>}
-              scrollY
-              style={{ maxHeight: 360 }}
-            >
+            ) : (
               <EventExplorer
                 types={typeCounts}
                 activeType={view.event_type || null}
                 onSelectType={(t) => patchView({ event_type: t || "" })}
                 onClearType={() => patchView({ event_type: "" })}
               />
-            </Panel>
-          ) : (
-            <Panel
-              title="Explorer"
-              actions={<span className="text-[10px] font-mono text-muted-foreground">{ddosScope ? "Locked: DDoS semantic scope" : `Locked: ${pinnedEventType}`}</span>}
-            >
-              <div className="text-[12px] text-muted-foreground">
-                {ddosScope
-                  ? "Type explorer is locked for this module to preserve semantic DDoS filtering."
-                  : "Type explorer is locked for this module."}
-              </div>
-            </Panel>
-          )}
+            )}
+          </Panel>
 
           <Panel
             title="Top sources"
-            actions={topSrc.length ? undefined : <span className="text-[10.5px] text-muted-foreground">No data</span>}
+            actions={
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {topSrc.length ? "click to search" : "no data"}
+              </span>
+            }
+            compact
+            scrollY
+            style={{ height: INSIGHTS_PANEL_HEIGHT }}
           >
-            <TopList items={topSrc.slice(0, 6)} onPick={(key) => patchView({ search: key })} />
+            <TopList items={topSrc.slice(0, 8)} onPick={(key) => patchView({ search: key })} />
           </Panel>
 
           <Panel
             title="Top destinations"
-            actions={topDst.length ? undefined : <span className="text-[10.5px] text-muted-foreground">No data</span>}
+            actions={
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {topDst.length ? "click to search" : "no data"}
+              </span>
+            }
+            compact
+            scrollY
+            style={{ height: INSIGHTS_PANEL_HEIGHT }}
           >
-            <TopList items={topDst.slice(0, 6)} onPick={(key) => patchView({ search: key })} />
+            <TopList items={topDst.slice(0, 8)} onPick={(key) => patchView({ search: key })} />
           </Panel>
         </div>
+      ) : null}
 
+      <div ref={streamRef} className="min-w-0" style={{ height: streamHeight }}>
         <Panel
-          title="Event stream"
-          actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
-          className="min-w-0"
-          scrollY
-          bodyClassName="min-w-0 p-0"
-          style={{ height: "calc(100vh - 80px)" }}
+          title={moduleTitle || "Event stream"}
+          actions={<span className="font-mono text-[10px] text-muted-foreground">{headerRight}</span>}
+          className="h-full min-w-0"
+          bodyClassName="flex min-h-0 min-w-0 flex-col p-0"
         >
           {queryMeta ? (
             <div className="border-b border-border/60 px-3 py-2">
@@ -731,7 +831,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           ) : null}
 
           {!isInitialLoading && error && events.length === 0 ? (
-            <div className="p-3 space-y-3">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
               <DataQueryStateBanner tone="danger" message={error} />
               <EmptyState
                 title="Events unavailable"
@@ -745,7 +845,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           ) : null}
 
           {!isInitialLoading && !error && sortedEvents.length === 0 ? (
-            <div className="p-3">
+            <div className="flex flex-1 items-center justify-center p-4">
               <EmptyState
                 title="No events"
                 description={
@@ -760,23 +860,21 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           ) : null}
 
           {!isInitialLoading && (!error || events.length > 0) && sortedEvents.length > 0 ? (
-            <div className="relative min-w-0">
-              <EventsTable
-                rows={sortedEvents}
-                selectedId={selectedId}
-                compact={tablePrefs.compact}
-                showExtra={display.show_extra}
-                sort={tablePrefs.sort}
-                onSortChange={(next) => tablePrefs.setSort(next)}
-                onSelect={(e) => {
-                  setSelectedId(e.id);
-                  setView((prev) => ({ ...prev, event_id: e.id }));
-                }}
-                onEdit={(e) => {
-                  setSelectedId(e.id);
-                  setView((prev) => ({ ...prev, event_id: e.id }));
-                }}
-              />
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <EventsTable
+                  rows={sortedEvents}
+                  selectedId={selectedId}
+                  compact={tablePrefs.compact}
+                  showExtra={display.show_extra}
+                  sort={tablePrefs.sort}
+                  onSortChange={(next) => tablePrefs.setSort(next)}
+                  onSelect={(e) => {
+                    setSelectedId(e.id);
+                    setView((prev) => ({ ...prev, event_id: e.id }));
+                  }}
+                />
+              </div>
 
               {isRefreshing ? (
                 <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-md border border-border bg-card/90 px-2.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur">
@@ -785,7 +883,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
                 </div>
               ) : null}
 
-              <div className="px-3 pb-3 pt-2">
+              <div className="border-t border-border/60 px-3 py-2">
                 <DataPaginationFooter
                   totalCount={sortedEvents.length}
                   pageSize={view.limit}
@@ -807,7 +905,6 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           ) : null}
         </Panel>
       </div>
-
       <EventDrawer
         open={drawerId !== null}
         event={drawerEvent}
