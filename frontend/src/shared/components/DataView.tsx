@@ -59,6 +59,7 @@ export function DebouncedSearchInput({
   ariaLabel = "Search",
   className,
   disabled,
+  fullWidth = false,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -67,6 +68,7 @@ export function DebouncedSearchInput({
   ariaLabel?: string;
   className?: string;
   disabled?: boolean;
+  fullWidth?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
   const debounced = useDebouncedValue(draft, delayMs);
@@ -89,6 +91,7 @@ export function DebouncedSearchInput({
       disabled={disabled}
       isClearable
       compressed
+      fullWidth={fullWidth}
       className={className}
     />
   );
@@ -293,7 +296,7 @@ export function DataPaginationFooter({
           </div>
 
           <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span>Page size</span>
+            <span className="whitespace-nowrap">Page size</span>
             <EuiSelect
               value={String(pageSize)}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
