@@ -32,6 +32,7 @@ export function Table<T extends object>({
   rowKey,
   className,
   scrollX = false,
+  preserveColumnWidths = false,
   layout = "auto",
   stickyHeader = true,
   compact = true,
@@ -52,6 +53,7 @@ export function Table<T extends object>({
   rowKey: (row: T, idx: number) => string;
   className?: string;
   scrollX?: boolean;
+  preserveColumnWidths?: boolean;
   /** "fixed" keeps columns within the container (flex columns truncate) instead of growing to content. */
   layout?: "auto" | "fixed";
   stickyHeader?: boolean;
@@ -149,6 +151,7 @@ export function Table<T extends object>({
         "ui-card-shell min-w-0 overflow-visible",
         stickyHeader && "seagullTable-stickyHeader",
         scrollX && "seagullTable-scrollX",
+        preserveColumnWidths && "seagullTable-preserveColumnWidths",
         className
       )}
     >
