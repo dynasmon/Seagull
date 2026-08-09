@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo } from "react";
 
 import AgentFilter from "@/features/agents/components/AgentFilter";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
-import { DataLookbackSelect, DebouncedSearchInput } from "@/shared/components/DataView";
+import { DataFilterGroup, DataLookbackSelect, DebouncedSearchInput } from "@/shared/components/DataView";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
@@ -36,12 +36,6 @@ const DEFAULTS: { search: string; window_minutes: number; limit: number } = {
   window_minutes: 60,
   limit: 200,
 };
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
-  );
-}
 
 function norm(cfg: EventsViewConfig | undefined | null): EventsViewConfig {
   const c = cfg ?? {};
@@ -84,6 +78,7 @@ function EventsFiltersImpl(props: Props) {
 
   const agents = useMemo(() => props.agents ?? [], [props.agents]);
   const busy = Boolean(props.busy);
+  const busyClass = busy ? "cursor-not-allowed opacity-60" : undefined;
 
   const agentLabel = useMemo(() => {
     if (!effectiveCfg.agent_id) return "";
@@ -92,48 +87,45 @@ function EventsFiltersImpl(props: Props) {
     return found.display_name ? `${found.display_name} (${found.agent_id})` : found.agent_id;
   }, [agents, effectiveCfg.agent_id]);
 
+  const searchSpan = hideEventType || lockedEventType ? "md:col-span-2 xl:col-span-3" : "md:col-span-2";
+
   return (
-    <div className="space-y-3">
-      <div>
-        <FieldLabel>Agent</FieldLabel>
-        {lockedAgentId ? (
-          <>
-            <TextInput
-              value={agentLabel || lockedAgentId}
-              readOnly
-              className={cx("mt-1 font-mono text-[11.5px] opacity-80")}
-            />
-            <div className="mt-1 text-[11px] text-muted-foreground">Scope is pinned to the agent selected in Fleet.</div>
-          </>
-        ) : (
+    <div className="grid min-w-0 items-end gap-x-4 gap-y-3 px-3 py-3 md:grid-cols-2 xl:grid-cols-6">
+      {lockedAgentId ? (
+        <DataFilterGroup label="Agent">
+          <TextInput
+            value={agentLabel || lockedAgentId}
+            readOnly
+            title="Scope is pinned to the agent selected in Fleet"
+            className="font-mono text-[11.5px] opacity-80"
+          />
+        </DataFilterGroup>
+      ) : (
+        <div className="min-w-0">
           <AgentFilter
             value={effectiveCfg.agent_id ?? ""}
             onChange={(agentId) => patch({ agent_id: agentId || null })}
             isDisabled={busy}
             fullWidth
-            className="mt-1"
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {!hideEventType ? (
-        <div>
-          <FieldLabel>Event type</FieldLabel>
+        <DataFilterGroup label="Event type">
           {lockedEventType ? (
-            <>
-              <TextInput
-                value={lockedEventType}
-                readOnly
-                className="mt-1 font-mono text-[11.5px] opacity-80"
-              />
-              <div className="mt-1 text-[11px] text-muted-foreground">Event type is locked for this module.</div>
-            </>
+            <TextInput
+              value={lockedEventType}
+              readOnly
+              title="Event type is locked for this module"
+              className="font-mono text-[11.5px] opacity-80"
+            />
           ) : (
             <SelectInput
               value={effectiveCfg.event_type ?? ""}
               onChange={(e) => patch({ event_type: e.target.value ? e.target.value : null })}
               disabled={busy}
-              className={cx("mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
+              className={cx("font-mono text-[11.5px]", busyClass)}
             >
               <option value="">All types</option>
               <option value="dos_attack">dos_attack</option>
@@ -144,53 +136,49 @@ function EventsFiltersImpl(props: Props) {
               <option value="flow">flow</option>
             </SelectInput>
           )}
-        </div>
+        </DataFilterGroup>
       ) : null}
 
-      <div>
-        <FieldLabel>Search</FieldLabel>
+      <DataFilterGroup label="Search" className={searchSpan}>
         <DebouncedSearchInput
           value={effectiveCfg.search ?? ""}
           onChange={(value) => patch({ search: value })}
           disabled={busy}
           delayMs={350}
+          fullWidth
           placeholder="ip, user, rule, target, vector..."
-          className={cx("mt-1 h-9 text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
+          className={cx("text-[11.5px]", busyClass)}
         />
-      </div>
+      </DataFilterGroup>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <FieldLabel>Window (min)</FieldLabel>
-          <DataLookbackSelect
-            value={Number(effectiveCfg.window_minutes ?? DEFAULTS.window_minutes)}
-            onChange={(v) => patch({ window_minutes: v })}
-            options={[
-              { label: "15 min", minutes: 15 },
-              { label: "30 min", minutes: 30 },
-              { label: "1 hour", minutes: 60 },
-              { label: "6 hours", minutes: 360 },
-              { label: "24 hours", minutes: 1440 },
-            ]}
-            disabled={busy}
-            className={cx("mt-1 h-9 w-full font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
-          />
-        </div>
+      <DataFilterGroup label="Window">
+        <DataLookbackSelect
+          value={Number(effectiveCfg.window_minutes ?? DEFAULTS.window_minutes)}
+          onChange={(v) => patch({ window_minutes: v })}
+          options={[
+            { label: "15 min", minutes: 15 },
+            { label: "30 min", minutes: 30 },
+            { label: "1 hour", minutes: 60 },
+            { label: "6 hours", minutes: 360 },
+            { label: "24 hours", minutes: 1440 },
+          ]}
+          disabled={busy}
+          className={cx("w-full font-mono text-[11.5px]", busyClass)}
+        />
+      </DataFilterGroup>
 
-        <div>
-          <FieldLabel>Limit</FieldLabel>
-          <DraftNumberInput
-            value={Number(effectiveCfg.limit ?? DEFAULTS.limit)}
-            min={10}
-            max={500}
-            fallback={DEFAULTS.limit}
-            onCommit={(v) => patch({ limit: v })}
-            disabled={busy}
-            className={cx("mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
-            title="Max events to fetch"
-          />
-        </div>
-      </div>
+      <DataFilterGroup label="Limit">
+        <DraftNumberInput
+          value={Number(effectiveCfg.limit ?? DEFAULTS.limit)}
+          min={10}
+          max={500}
+          fallback={DEFAULTS.limit}
+          onCommit={(v) => patch({ limit: v })}
+          disabled={busy}
+          className={cx("font-mono text-[11.5px]", busyClass)}
+          title="Max events to fetch"
+        />
+      </DataFilterGroup>
     </div>
   );
 }
