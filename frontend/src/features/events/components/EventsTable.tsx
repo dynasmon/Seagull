@@ -93,7 +93,7 @@ export default function EventsTable({
         sortKey: "timestamp",
         title: "Time",
         sortable: true,
-        width: 170,
+        width: 160,
         className: "font-mono text-[12px] text-muted-foreground",
         render: (e) => fmtTs(e.timestamp),
       },
@@ -102,15 +102,15 @@ export default function EventsTable({
         title: "Agent",
         sortKey: "agent_id",
         sortable: true,
-        width: 200,
-        render: (e) => <AgentTag agentId={e.agent_id} />,
+        width: 170,
+        render: (e) => <AgentTag agentId={e.agent_id} className="max-w-[154px]" />,
       },
       {
         key: "event_type",
         title: "Type",
         sortKey: "event_type",
         sortable: true,
-        width: 180,
+        width: 150,
         render: (e) => (
           <div className="flex items-center gap-2">
             <Badge>{e.event_type}</Badge>
@@ -123,7 +123,7 @@ export default function EventsTable({
       {
         key: "protocol",
         title: "Protocol",
-        width: 220,
+        width: 190,
         render: (e) => {
           const protocol = getEventProtocolIntel(e);
           const appLabel = formatProtocolLabel(protocol.appProto);
@@ -131,7 +131,7 @@ export default function EventsTable({
           const hasApp = appLabel !== "-";
 
           return (
-            <div className="min-w-0">
+            <div className="min-w-0 max-w-[174px]">
               <div className="flex flex-wrap items-center gap-1.5">
                 {hasApp ? <Badge variant="info">{appLabel}</Badge> : null}
                 {transportLabel !== "-" ? (
@@ -158,7 +158,7 @@ export default function EventsTable({
         title: "Source",
         sortKey: "src_ip",
         sortable: true,
-        width: 170,
+        width: 180,
         className: "text-[12px]",
         render: (e) => srcLabel(e),
       },
@@ -167,7 +167,7 @@ export default function EventsTable({
         title: "Dest",
         sortKey: "dst_ip",
         sortable: true,
-        width: 170,
+        width: 180,
         className: "text-[12px]",
         render: (e) => <DstEndpoint event={e} />,
       },
@@ -177,8 +177,17 @@ export default function EventsTable({
       cols.push({
         key: "details",
         title: "Details",
+        width: 200,
         className: "text-[12px] text-muted-foreground",
-        render: (e) => summarizeExtra(e) || <span className="opacity-60">-</span>,
+        render: (e) => {
+          const summary = summarizeExtra(e);
+          if (!summary) return <span className="opacity-60">-</span>;
+          return (
+            <div className="max-w-[184px] truncate" title={summary}>
+              {summary}
+            </div>
+          );
+        },
       });
     }
 
@@ -220,6 +229,7 @@ export default function EventsTable({
       rows={rows}
       rowKey={eventRowKey}
       compact={Boolean(compact)}
+      preserveColumnWidths
       stickyHeader
       selectedRowKey={selectedRowKey}
       onRowClick={(row) => onSelect?.(row)}
