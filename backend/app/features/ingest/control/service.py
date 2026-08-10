@@ -27,7 +27,12 @@ from app.features.ingest.control.queue_keys import (
     storm_active_key,
 )
 from app.features.ingest.control.recovery import decide_pressure_phase, get_storm_status, recover_runtime_state
-from app.features.ingest.control.sink_metrics import record_sink_runtime_metric, set_sink_queue_depth
+from app.features.ingest.control.sink_metrics import (
+    record_clickhouse_progress,
+    record_sink_runtime_metric,
+    set_clickhouse_state,
+    set_sink_queue_depth,
+)
 from app.features.ingest.control.storm import mark_storm_active, storm_maybe_close_alert, storm_maybe_open_alert
 from app.features.ingest.control.worker_state import count_active_workers, record_worker_progress, worker_heartbeat
 
@@ -50,12 +55,14 @@ __all__ = [
     "processing_key",
     "queue_key",
     "read_overview_live_window",
+    "record_clickhouse_progress",
     "record_ingest_quality",
     "record_overview_live_drop",
     "record_overview_live_telemetry",
     "record_sink_runtime_metric",
     "record_worker_progress",
     "recover_runtime_state",
+    "set_clickhouse_state",
     "set_sink_queue_depth",
     "storm_active_key",
     "storm_maybe_close_alert",
