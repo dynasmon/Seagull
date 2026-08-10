@@ -189,6 +189,8 @@ class Settings:
         _env_str("SEAGULL_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
     )
     SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE: int = _env_int("SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE", 1000)
+    SEAGULL_DB_SEQUENCE_PROBE_TTL_SECONDS: float = _env_float("SEAGULL_DB_SEQUENCE_PROBE_TTL_SECONDS", 30.0)
+    SEAGULL_DB_SEQUENCE_WARN_RATIO: float = _env_float("SEAGULL_DB_SEQUENCE_WARN_RATIO", 0.85)
 
     SEAGULL_JWT_SECRET: str | None = _env_str("SEAGULL_JWT_SECRET", None)
     SEAGULL_TOKEN_PEPPER: str | None = _env_str("SEAGULL_TOKEN_PEPPER", None)
@@ -669,6 +671,10 @@ class Settings:
             errors.append("SEAGULL_DB_REPLICA_PROBE_INTERVAL_SECONDS must be > 0")
         if (self.SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS or 0) < 1:
             errors.append("SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS must be >= 1")
+        if (self.SEAGULL_DB_SEQUENCE_PROBE_TTL_SECONDS or 0.0) < 0.0:
+            errors.append("SEAGULL_DB_SEQUENCE_PROBE_TTL_SECONDS must be >= 0")
+        if not 0.0 < (self.SEAGULL_DB_SEQUENCE_WARN_RATIO or 0.0) <= 1.0:
+            errors.append("SEAGULL_DB_SEQUENCE_WARN_RATIO must be > 0 and <= 1")
         if (self.SEAGULL_INGEST_MAX_BATCH or 0) < 1:
             errors.append("SEAGULL_INGEST_MAX_BATCH must be >= 1")
         if (self.SEAGULL_MAX_REQUEST_BODY_BYTES or 0) < 1024:
@@ -976,6 +982,8 @@ class Settings:
                 "prometheus_url": self.SEAGULL_PROMETHEUS_URL,
                 "prometheus_timeout_seconds": float(self.SEAGULL_PROMETHEUS_TIMEOUT_SECONDS),
                 "cache_ttl_seconds": float(self.SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS),
+                "db_sequence_probe_ttl_seconds": float(self.SEAGULL_DB_SEQUENCE_PROBE_TTL_SECONDS),
+                "db_sequence_warn_ratio": float(self.SEAGULL_DB_SEQUENCE_WARN_RATIO),
             },
             "security": {
                 "cookie_secure": bool(self.SEAGULL_COOKIE_SECURE),

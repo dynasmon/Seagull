@@ -1,0 +1,56 @@
+groups:
+  - name: seagull-postgres
+    rules:
+      - alert: PostgresSequenceCapacityElevated
+        expr: max by (sequence) (postgres_sequence_used_ratio) >= 0.6
+        for: 15m
+        labels:
+          severity: warning
+          subsystem: postgres
+        annotations:
+          summary: Postgres sequence {{ $labels.sequence }} has spent 60% of its value space
+          description: >-
+            Every integer primary key in Seagull is backed by a 32-bit sequence
+            that stops at 2147483647. When it runs out, every INSERT on the
+            owning table fails and ingestion falls into retry and deadletter.
+            Sequence burn is not row count: workers that delete and reinsert
+            (exposure and network topology rebuild their graphs every cycle)
+            consume values far faster than their tables grow, so a small table
+            can still be the one that exhausts first. Read the current position
+            with SELECT sequencename, last_value, max_value FROM pg_sequences
+            WHERE schemaname = current_schema() ORDER BY last_value DESC, and
+            plan the migration of the owning column to BIGINT. ALTER TABLE
+            ... ALTER COLUMN TYPE bigint rewrites the table under an ACCESS
+            EXCLUSIVE lock, so size the maintenance window from the table before
+            starting.
+      - alert: PostgresSequenceCapacityCritical
+        expr: max by (sequence) (postgres_sequence_used_ratio) >= 0.85
+        for: 5m
+        labels:
+          severity: critical
+          subsystem: postgres
+        annotations:
+          summary: Postgres sequence {{ $labels.sequence }} is close to exhaustion
+          description: >-
+            The sequence has consumed 85% of its value space. At the current
+            rate the owning table will start rejecting INSERTs; for net_events
+            that stops ingestion entirely and drains the queue into the
+            deadletter list. Migrate the owning column to BIGINT now. If the
+            table is too large for an in-place rewrite, restore headroom first
+            by lowering the sequence with setval once the low end of the range
+            is provably free, or by rebuilding the table into a partitioned
+            BIGINT copy and swapping it in.
+      - alert: PostgresSequenceProbeStale
+        expr: absent(postgres_sequence_used_ratio)
+        for: 30m
+        labels:
+          severity: warning
+          subsystem: postgres
+        annotations:
+          summary: Sequence capacity is no longer being reported
+          description: >-
+            The backend has not exported postgres_sequence_used_ratio for 30
+            minutes, so the exhaustion alerts above cannot fire. The probe runs
+            on every /metrics scrape and fails open, which means either the
+            scrape target is down or the query against pg_sequences is failing.
+            Check the backend logs for sequence_capacity_probe_failed.
