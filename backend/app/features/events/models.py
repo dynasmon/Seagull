@@ -10,7 +10,7 @@ class NetEventModel(Base):
     # No single-column indexes on id/agent_id/event_type/timestamp: the pkey
     # and the composite indexes in schema_bootstrap (agent_ts, type_ts, ts_id)
     # already cover those prefixes; extra copies only tax every INSERT.
-    id = Column(Integer, primary_key=True)
+    id = Column(BigInteger, primary_key=True)
     agent_id = Column(String(64), nullable=False)
     event_type = Column(String(32), nullable=False)
     schema_version = Column(SmallInteger, nullable=False, default=1)
@@ -21,7 +21,7 @@ class NetEventModel(Base):
     src_port = Column(Integer, nullable=True)
     dst_port = Column(Integer, nullable=True)
     proto = Column(String(16), nullable=True)
-    bytes = Column(Integer, nullable=True)
+    bytes = Column(BigInteger, nullable=True)
 
     # JSONB enables expression/GIN indexes and faster key extraction in Postgres.
     extra = Column(JSONB, nullable=False, default=dict)
