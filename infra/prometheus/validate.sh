@@ -11,3 +11,7 @@ docker run --rm --entrypoint promtool \
 docker run --rm --entrypoint sh \
   -v "${SCRIPT_DIR}:/cfg:ro" \
   "${PROM_IMAGE}" -c 'promtool check rules /cfg/rules/*.yml'
+
+docker run --rm --entrypoint sh \
+  -v "${SCRIPT_DIR}:/cfg:ro" \
+  "${PROM_IMAGE}" -c 'promtool test rules /cfg/tests/*.yml'

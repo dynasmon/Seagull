@@ -19,6 +19,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.db import engine, read_router, start_replica_monitor, stop_replica_monitor
+from app.core.db.capacity import sequence_capacity_report
 from app.core.db.lifecycle import FatalStartupError, ensure_database_ready
 from app.core.db.locks import advisory_lock
 from app.core.db.model_registry import load_all_models
@@ -519,6 +520,10 @@ def metrics():
             es_cluster_status_report()
         except Exception:
             pass
+    try:
+        sequence_capacity_report()
+    except Exception:
+        pass
     body, content_type = render_exposition()
     return Response(content=body, media_type=content_type)
 

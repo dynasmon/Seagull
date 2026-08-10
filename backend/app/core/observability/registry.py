@@ -228,6 +228,9 @@ _SPECS: Tuple[MetricSpec, ...] = (
     _spec("postgres_read_route_total", "counter",
           "Read-routed session acquisitions by route key and engine role served.",
           ("route", "engine")),
+    _spec("postgres_sequence_used_ratio", "gauge",
+          "Fraction of a Postgres sequence's value space already consumed.",
+          ("sequence",), multiproc_mode="mostrecent"),
 
     _spec("es_cluster_status", "gauge",
           "Elasticsearch cluster health status (0=green, 1=yellow, 2=red, -1=unreachable).",
