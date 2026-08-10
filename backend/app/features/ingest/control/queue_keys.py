@@ -139,3 +139,19 @@ def _sink_counter_key(*, sink: str, metric: str, ts_s: int) -> str:
 
 def _sink_depth_key(*, sink: str) -> str:
     return f"seagull:ingest:sink:{sink}:queue_depth"
+
+
+def _clickhouse_rows_key(ts_s: int) -> str:
+    return f"seagull:ingest:clickhouse:rows:{ts_s}"
+
+
+def _clickhouse_batches_key(ts_s: int) -> str:
+    return f"seagull:ingest:clickhouse:batches:{ts_s}"
+
+
+def _clickhouse_state_key() -> str:
+    return "seagull:ingest:clickhouse:state"
+
+
+def _clickhouse_error_type_key() -> str:
+    return "seagull:ingest:clickhouse:error_type"

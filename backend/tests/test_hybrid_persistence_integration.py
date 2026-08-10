@@ -22,10 +22,14 @@ from app.core.integrations.clickhouse import (
     reset_clickhouse_client,
 )
 from app.features.auth.session import PortalPrincipal, get_current_user
+from app.features.events.worker_runtime import write_clickhouse_events
 from app.main import app
-from app.workers.indexing.clickhouse_backfill import run_backfill
-from app.workers.ingest.clickhouse_sink import _try_bootstrap_clickhouse, _write_clickhouse_events
+from app.shared.outbox import store
+from app.shared.outbox.models import SINK_CLICKHOUSE
 from app.workers.ingest.hot_store import _insert_hot_rows_with_pg_ids
+from app.workers.sinks.clickhouse import ClickHouseDelivery
+from app.workers.sinks.config import load_dispatcher_config
+from app.workers.sinks.dispatcher import OutboxDispatcher
 
 
 def _flag_enabled(name: str) -> bool:
@@ -116,7 +120,7 @@ def test_dual_write_pg_and_clickhouse_available() -> None:
     assert pg_event_id > 0
 
     ch = get_clickhouse_client()
-    _write_clickhouse_events(ch_client=ch, hot_rows=inserted)
+    write_clickhouse_events(ch_client=ch, hot_rows=inserted)
 
     with engine.connect() as conn:
         pg_count = int(conn.execute(text("SELECT count(*) FROM net_events WHERE id = :id"), {"id": pg_event_id}).scalar_one())
@@ -138,7 +142,7 @@ def test_pg_insert_when_clickhouse_unavailable(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(settings, "SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS", 0.2, raising=False)
     reset_clickhouse_client()
 
-    assert _try_bootstrap_clickhouse() is None
+    assert ClickHouseDelivery(load_dispatcher_config())._connect() is None
 
     agent = f"it-hybrid-noch-{uuid.uuid4().hex[:8]}"
     with engine.begin() as conn:
@@ -155,7 +159,7 @@ def test_events_recent_ch_first_deduplicates(api_client: TestClient) -> None:
     base = _mk_hot_row(agent)
     base["pg_event_id"] = synthetic_pg_event_id
 
-    _write_clickhouse_events(ch_client=ch, hot_rows=[base, base])
+    write_clickhouse_events(ch_client=ch, hot_rows=[base, base])
 
     r = api_client.get("/events/recent", params={"limit": 20, "agent_id": agent})
     assert r.status_code == 200
@@ -178,25 +182,22 @@ def test_network_summary_falls_back_when_clickhouse_window_empty(api_client: Tes
     assert int(data["dns_events"]) >= 1
 
 
-def test_backfill_replays_pg_to_clickhouse_safely() -> None:
+def test_outbox_delivers_events_to_clickhouse_exactly_once() -> None:
     ch = get_clickhouse_client()
-    agent = f"it-hybrid-backfill-{uuid.uuid4().hex[:8]}"
+    agent = f"it-hybrid-outbox-{uuid.uuid4().hex[:8]}"
     row = _mk_hot_row(agent, event_type="flow", extra={"severity": "high"})
 
     with engine.begin() as conn:
         inserted = _insert_hot_rows_with_pg_ids(conn, [row])
+        store.enqueue(conn, sink=SINK_CLICKHOUSE, events=inserted, chunk_size=100)
     pg_event_id = int(inserted[0]["pg_event_id"])
 
-    result = run_backfill(
-        ch_client=ch,
-        from_id=max(0, pg_event_id - 1),
-        batch_size=200,
-        max_rows=1000,
-        sleep_seconds=0.0,
-        agent_id=agent,
-    )
-    assert int(result["processed"]) >= 1
-    assert int(result["last_id"]) >= pg_event_id
+    cfg = load_dispatcher_config()
+    dispatcher = OutboxDispatcher(delivery=ClickHouseDelivery(cfg), cfg=cfg)
+    assert dispatcher.drain_once() >= 1
+
+    with engine.begin() as conn:
+        assert store.depth(conn, sink=SINK_CLICKHOUSE).events == 0
 
     table = clickhouse_events_table_ref()
     ch_row = ch.query(
@@ -205,13 +206,23 @@ def test_backfill_replays_pg_to_clickhouse_safely() -> None:
     ).first_row
     assert int(ch_row[0]) >= 1
 
-    # Replay without explicit from_id resumes from CH max pg_event_id for this agent.
-    result2 = run_backfill(
-        ch_client=ch,
-        from_id=0,
-        batch_size=200,
-        max_rows=1000,
-        sleep_seconds=0.0,
-        agent_id=agent,
-    )
-    assert int(result2["processed"]) == 0
+
+def test_replayed_outbox_batch_is_deduplicated_by_clickhouse() -> None:
+    ch = get_clickhouse_client()
+    agent = f"it-hybrid-replay-{uuid.uuid4().hex[:8]}"
+
+    with engine.begin() as conn:
+        inserted = _insert_hot_rows_with_pg_ids(conn, [_mk_hot_row(agent, event_type="flow")])
+    pg_event_id = int(inserted[0]["pg_event_id"])
+
+    cfg = load_dispatcher_config()
+    delivery = ClickHouseDelivery(cfg)
+    for _ in range(3):
+        assert delivery.deliver(inserted, batch_id=pg_event_id).delivered == 1
+
+    table = clickhouse_events_table_ref()
+    ch_row = ch.query(
+        f"SELECT count() FROM {table} WHERE pg_event_id = {{eid:UInt64}}",
+        parameters={"eid": pg_event_id},
+    ).first_row
+    assert int(ch_row[0]) == 1

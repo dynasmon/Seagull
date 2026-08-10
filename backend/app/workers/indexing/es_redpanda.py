@@ -17,15 +17,10 @@ from app.core.messaging import (
     report_consumer_lag,
 )
 from app.core.observability import incr_counter, init_counter, log_event, observe_hist, setup_logging
+from app.shared.indexing.bulk import is_permanent_status, parse_bulk_errors, run_bulk
 from app.shared.indexing.es_doc import build_event_doc
 from app.workers.indexing.es_bootstrap import ESConfig, bootstrap, load_config
-from app.workers.indexing.es_stream import (
-    _build_es_client,
-    _is_permanent,
-    _observe_lag,
-    _parse_bulk_errors,
-    _run_bulk,
-)
+from app.workers.indexing.es_stream import _build_es_client, _observe_lag
 
 setup_logging("worker-es-indexer-redpanda")
 logger = logging.getLogger("seagull.worker.es_indexer_redpanda")
@@ -167,8 +162,8 @@ def _bulk_attempt(
         return [], False
 
     try:
-        _success, raw_errors = _run_bulk(es, actions, es_cfg.request_timeout_seconds)
-        failed = _parse_bulk_errors(raw_errors)
+        _success, raw_errors = run_bulk(es, actions, request_timeout=es_cfg.request_timeout_seconds)
+        failed = parse_bulk_errors(raw_errors)
         unreachable = False
     except Exception as exc:
         failed = {did: (503, type(exc).__name__) for did in by_docid}
@@ -186,7 +181,7 @@ def _bulk_attempt(
             continue
 
         status, reason = failed[did]
-        if not unreachable and _is_permanent(status):
+        if not unreachable and is_permanent_status(status):
             incr_counter("es_indexer_bulk_error_total", reason="permanent")
             incr_counter("es_indexer_dlq_total", reason="permanent")
             _publish_dlq(cfg, entry, reason=f"permanent_{status}", error=reason, doc_id=did)

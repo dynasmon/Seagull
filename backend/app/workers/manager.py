@@ -134,6 +134,18 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
             selector_value="redpanda",
             selector_default="redis",
         ),
+        ChildSpec(
+            name="sink-dispatcher",
+            module="app.workers.sinks.main",
+            enabled_env="SEAGULL_SINK_DISPATCHER_ENABLED",
+            enabled_default=True,
+        ),
+        ChildSpec(
+            name="projection-reconciler",
+            module="app.workers.sinks.reconciler",
+            enabled_env="SEAGULL_PROJECTION_RECONCILE_ENABLED",
+            enabled_default=True,
+        ),
         ChildSpec(name="rollup-1m", module="app.workers.analytics.rollup_1m"),
     ),
     "intelligence": (

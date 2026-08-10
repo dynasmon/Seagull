@@ -1,28 +1,7 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Optional
-
-
-def _to_ch_ts(ts: Any) -> datetime:
-    if isinstance(ts, datetime):
-        if ts.tzinfo is None:
-            return ts.replace(tzinfo=timezone.utc)
-        return ts.astimezone(timezone.utc)
-    return datetime.now(timezone.utc)
-
-
-def _norm_port(v: Any) -> Optional[int]:
-    try:
-        if v is None:
-            return None
-        n = int(v)
-        if n < 0 or n > 65535:
-            return None
-        return n
-    except Exception:
-        return None
 
 
 def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]:
@@ -97,27 +76,7 @@ def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]
     return out
 
 
-def _event_fingerprint(row: Dict[str, Any]) -> str:
-    extra = row.get("extra") or {}
-    if not isinstance(extra, dict):
-        extra = {}
-    return "|".join(
-        [
-            str(row.get("agent_id") or ""),
-            str(row.get("event_type") or ""),
-            _to_ch_ts(row.get("timestamp")).isoformat(),
-            str(row.get("src_ip") or ""),
-            str(row.get("dst_ip") or ""),
-            str(_norm_port(row.get("src_port")) or 0),
-            str(_norm_port(row.get("dst_port")) or 0),
-            str(row.get("proto") or ""),
-            str(int(row.get("bytes") or 0)),
-            json.dumps(extra, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str),
-        ]
-    )
-
-
-def _event_from_wire(ev: List[Any]) -> Dict[str, Any] | None:
+def event_from_wire(ev: List[Any]) -> Dict[str, Any] | None:
     agent_id = ev[0] if len(ev) > 0 else None
     event_type = ev[1] if len(ev) > 1 else None
     if not agent_id or not event_type:
@@ -156,7 +115,7 @@ def _event_from_wire(ev: List[Any]) -> Dict[str, Any] | None:
         bytes_v = 0
 
     extra_v = ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {}
-    row = {
+    return {
         "agent_id": agent_id,
         "event_type": event_type,
         "schema_version": schema_v,
@@ -169,5 +128,11 @@ def _event_from_wire(ev: List[Any]) -> Dict[str, Any] | None:
         "bytes": bytes_v,
         "extra": extra_v,
     }
-    row.update(_event_hot_columns(event_type=event_type, extra=extra_v))
+
+
+def hot_event_from_wire(ev: List[Any]) -> Dict[str, Any] | None:
+    row = event_from_wire(ev)
+    if row is None:
+        return None
+    row.update(_event_hot_columns(event_type=str(row["event_type"]), extra=row["extra"]))
     return row

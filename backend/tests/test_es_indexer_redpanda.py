@@ -95,7 +95,7 @@ class _BulkScript:
         self.outcomes = list(outcomes)
         self.calls: List[List[Dict[str, Any]]] = []
 
-    def __call__(self, _es: Any, actions: List[Dict[str, Any]], _timeout: int) -> Tuple[int, List[Any]]:
+    def __call__(self, _es: Any, actions: List[Dict[str, Any]], *, request_timeout: int) -> Tuple[int, List[Any]]:
         self.calls.append(actions)
         outcome = self.outcomes.pop(0) if self.outcomes else {}
         if isinstance(outcome, Exception):
@@ -156,7 +156,7 @@ def dlq(monkeypatch: pytest.MonkeyPatch) -> _FakeDlqProducer:
 
 def test_happy_path_indexes_and_commits(monkeypatch: pytest.MonkeyPatch, dlq: _FakeDlqProducer) -> None:
     bulk = _BulkScript(outcomes=[{}])
-    monkeypatch.setattr(es_redpanda, "_run_bulk", bulk)
+    monkeypatch.setattr(es_redpanda, "run_bulk", bulk)
     consumer = _FakeConsumer(batches=[[_FakeMessage(_event(1)), _FakeMessage(_event(2))]])
 
     es_redpanda.run(
@@ -177,7 +177,7 @@ def test_happy_path_indexes_and_commits(monkeypatch: pytest.MonkeyPatch, dlq: _F
 
 def test_permanent_error_goes_to_dlq_and_commits(monkeypatch: pytest.MonkeyPatch, dlq: _FakeDlqProducer) -> None:
     bulk = _BulkScript(outcomes=[{"1": (400, "mapper_parsing_exception")}])
-    monkeypatch.setattr(es_redpanda, "_run_bulk", bulk)
+    monkeypatch.setattr(es_redpanda, "run_bulk", bulk)
     consumer = _FakeConsumer(batches=[[_FakeMessage(_event(1), partition=3, offset=42), _FakeMessage(_event(2))]])
 
     es_redpanda.run(
@@ -203,7 +203,7 @@ def test_permanent_error_goes_to_dlq_and_commits(monkeypatch: pytest.MonkeyPatch
 
 def test_transient_error_retried_then_indexed(monkeypatch: pytest.MonkeyPatch, dlq: _FakeDlqProducer) -> None:
     bulk = _BulkScript(outcomes=[{"1": (429, "es_rejected_execution_exception")}, {}])
-    monkeypatch.setattr(es_redpanda, "_run_bulk", bulk)
+    monkeypatch.setattr(es_redpanda, "run_bulk", bulk)
     consumer = _FakeConsumer(batches=[[_FakeMessage(_event(1))]])
 
     es_redpanda.run(
@@ -229,7 +229,7 @@ def test_transient_exhausts_retries_then_dlq(monkeypatch: pytest.MonkeyPatch, dl
             {"1": (503, "unavailable_shard_exception")},
         ]
     )
-    monkeypatch.setattr(es_redpanda, "_run_bulk", bulk)
+    monkeypatch.setattr(es_redpanda, "run_bulk", bulk)
     consumer = _FakeConsumer(batches=[[_FakeMessage(_event(1))]])
 
     es_redpanda.run(
@@ -249,7 +249,7 @@ def test_transient_exhausts_retries_then_dlq(monkeypatch: pytest.MonkeyPatch, dl
 
 def test_decode_error_goes_to_dlq_without_blocking_batch(monkeypatch: pytest.MonkeyPatch, dlq: _FakeDlqProducer) -> None:
     bulk = _BulkScript(outcomes=[{}])
-    monkeypatch.setattr(es_redpanda, "_run_bulk", bulk)
+    monkeypatch.setattr(es_redpanda, "run_bulk", bulk)
     consumer = _FakeConsumer(batches=[[_FakeMessage(None, raw=b"corrupted"), _FakeMessage(_event(2))]])
 
     es_redpanda.run(
@@ -270,7 +270,7 @@ def test_decode_error_goes_to_dlq_without_blocking_batch(monkeypatch: pytest.Mon
 
 def test_unreachable_es_retries_with_keepalive_without_dlq(monkeypatch: pytest.MonkeyPatch, dlq: _FakeDlqProducer) -> None:
     bulk = _BulkScript(outcomes=[RuntimeError("conn refused"), {}])
-    monkeypatch.setattr(es_redpanda, "_run_bulk", bulk)
+    monkeypatch.setattr(es_redpanda, "run_bulk", bulk)
     consumer = _FakeConsumer(batches=[[_FakeMessage(_event(1))]])
 
     es_redpanda.run(

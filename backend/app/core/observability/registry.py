@@ -18,9 +18,6 @@ SECONDS_BUCKETS: Tuple[float, ...] = (
 MS_BUCKETS: Tuple[float, ...] = (
     5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000,
 )
-DEPTH_BUCKETS: Tuple[float, ...] = (
-    1, 10, 50, 100, 500, 1000, 5000, 10000, 50000,
-)
 PG_QUERY_BUCKETS: Tuple[float, ...] = (
     0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
 )
@@ -125,11 +122,41 @@ _SPECS: Tuple[MetricSpec, ...] = (
 
     _spec("ingest_hot_path_latency_seconds", "histogram", "Ingest hot-path processing latency in seconds.",
           buckets=SECONDS_BUCKETS),
-    _spec("ingest_optional_sink_latency_seconds", "histogram", "Optional sink write latency in seconds.",
-          ("sink", "outcome"), buckets=SECONDS_BUCKETS),
-    _spec("ingest_optional_sink_queue_depth", "histogram", "Optional sink queue depth at enqueue time.",
-          ("sink",), buckets=DEPTH_BUCKETS),
     _spec("ingest_optional_sink_dropped_total", "counter", "Events dropped from optional sinks.", ("sink", "reason")),
+
+    _spec("sink_outbox_delivery_seconds", "histogram",
+          "Outbox batch delivery latency in seconds, by sink and outcome.",
+          ("sink", "outcome"), buckets=SECONDS_BUCKETS),
+    _spec("sink_outbox_delivered_total", "counter",
+          "Events delivered to an analytical sink from the durable outbox.", ("sink",)),
+    _spec("sink_outbox_retry_total", "counter",
+          "Events kept in the outbox after a transient delivery failure.", ("sink",)),
+    _spec("sink_outbox_dead_letter_total", "counter",
+          "Events moved to the outbox dead letter, by sink and reason.", ("sink", "reason")),
+    _spec("sink_outbox_loop_errors_total", "counter", "Sink dispatcher loop errors, by sink.", ("sink",)),
+    _spec("sink_outbox_pending_batches", "gauge",
+          "Outbox batches awaiting delivery, by sink.", ("sink",), multiproc_mode="mostrecent"),
+    _spec("sink_outbox_pending_events", "gauge",
+          "Events awaiting delivery in the outbox, by sink.", ("sink",), multiproc_mode="mostrecent"),
+    _spec("sink_outbox_oldest_age_seconds", "gauge",
+          "Age of the oldest undelivered outbox batch in seconds, by sink.",
+          ("sink",), multiproc_mode="mostrecent"),
+    _spec("sink_outbox_dead_letter_events", "gauge",
+          "Events currently held in the outbox dead letter, by sink.", ("sink",), multiproc_mode="mostrecent"),
+
+    _spec("projection_missing_events", "gauge",
+          "Hot-store events absent from a projection in the reconciled window, by sink.",
+          ("sink",), multiproc_mode="mostrecent"),
+    _spec("projection_divergence_ratio", "gauge",
+          "Fraction of hot-store events absent from a projection in the reconciled window, by sink.",
+          ("sink",), multiproc_mode="mostrecent"),
+    _spec("projection_repair_enqueued_total", "counter",
+          "Events re-enqueued to the outbox by the projection reconciler, by sink.", ("sink",)),
+    _spec("projection_reconcile_errors_total", "counter",
+          "Reconciliation passes that could not read a projection, by sink.", ("sink",)),
+    _spec("projection_reconcile_seconds", "histogram",
+          "Projection reconciliation pass duration in seconds, by sink.",
+          ("sink",), buckets=(0.5, 1, 2.5, 5, 10, 30, 60, 120, 300)),
 
     _spec("hunt_backend_chosen_total", "counter",
           "Event-hunt router first-choice backend by decision reason.", ("backend", "reason")),

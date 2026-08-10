@@ -14,6 +14,10 @@ from app.features.ingest.control.backpressure import get_backlog
 from app.features.ingest.control.counters import _read_ingest_quality_window
 from app.features.ingest.control.queue_keys import (
     _as_int,
+    _clickhouse_batches_key,
+    _clickhouse_error_type_key,
+    _clickhouse_rows_key,
+    _clickhouse_state_key,
     _env_int,
     _eps_key,
     _overview_live_dropped_key,
@@ -292,19 +296,19 @@ def get_storm_status() -> Dict[str, Any]:
     except Exception:
         processed_messages = 0
     try:
-        clickhouse_rows = _as_int(r.get(f"seagull:ingest:clickhouse:rows:{ts_s}"), 0)
+        clickhouse_rows = _as_int(r.get(_clickhouse_rows_key(ts_s)), 0)
     except Exception:
         clickhouse_rows = 0
     try:
-        clickhouse_batches = _as_int(r.get(f"seagull:ingest:clickhouse:batches:{ts_s}"), 0)
+        clickhouse_batches = _as_int(r.get(_clickhouse_batches_key(ts_s)), 0)
     except Exception:
         clickhouse_batches = 0
     try:
-        clickhouse_state = str(r.get("seagull:ingest:clickhouse:state") or "unknown")
+        clickhouse_state = str(r.get(_clickhouse_state_key()) or "unknown")
     except Exception:
         clickhouse_state = "unknown"
     try:
-        clickhouse_error_type = r.get("seagull:ingest:clickhouse:error_type")
+        clickhouse_error_type = r.get(_clickhouse_error_type_key())
     except Exception:
         clickhouse_error_type = None
     try:
