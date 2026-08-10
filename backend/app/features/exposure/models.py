@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import BigInteger, Column, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -9,7 +9,7 @@ from app.core.db import Base
 class ExposureAssetPostureModel(Base):
     __tablename__ = "exposure_asset_posture"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
     asset_key = Column(String(256), unique=True, index=True, nullable=False)
     agent_id = Column(String(64), index=True, nullable=True)
 
@@ -48,7 +48,7 @@ class ExposureAssetPostureModel(Base):
 class ExposureNodeModel(Base):
     __tablename__ = "exposure_nodes"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
     node_key = Column(String(128), unique=True, index=True, nullable=False)
     node_type = Column(String(32), index=True, nullable=False)
     asset_key = Column(String(256), index=True, nullable=True)
@@ -70,7 +70,7 @@ class ExposureNodeModel(Base):
 class ExposureEdgeModel(Base):
     __tablename__ = "exposure_edges"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
     edge_key = Column(String(128), unique=True, index=True, nullable=False)
     source_node_key = Column(String(128), index=True, nullable=False)
     target_node_key = Column(String(128), index=True, nullable=False)
@@ -92,7 +92,7 @@ class ExposureEdgeModel(Base):
 class ExposureFindingModel(Base):
     __tablename__ = "exposure_findings"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
     finding_key = Column(String(128), unique=True, index=True, nullable=False)
     asset_key = Column(String(256), index=True, nullable=False)
     agent_id = Column(String(64), index=True, nullable=True)
@@ -120,7 +120,7 @@ class ExposureFindingModel(Base):
 class ExposureScoreHistoryModel(Base):
     __tablename__ = "exposure_score_history"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True)
     asset_key = Column(String(256), index=True, nullable=False)
     agent_id = Column(String(64), index=True, nullable=True)
     bucket_ts = Column(DateTime(timezone=True), index=True, nullable=False)
