@@ -23,3 +23,4 @@ def load_all_models() -> None:
     from app.shared.analytics import models as _analytics  # noqa: F401
     from app.shared.enrichment import models as _enrichment  # noqa: F401
     from app.shared.indexing import models as _indexing  # noqa: F401
+    from app.shared.outbox import models as _outbox  # noqa: F401
