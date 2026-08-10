@@ -21,6 +21,9 @@ EXTRA_SEARCH_KEYS = (
     "fim_path",
 )
 
+FIM_EVENT_TYPES = frozenset({"fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"})
+HEURISTIC_EVENT_TYPES = frozenset({"beacon_suspect", "c2_suspect", "exfil_suspect", "egress_anomaly"})
+
 
 def _as_str(v: Any) -> Optional[str]:
     if v is None:
@@ -140,6 +143,23 @@ def build_event_doc(row: Dict[str, Any]) -> Dict[str, Any]:
             vv = _as_str(extra.get(k_src))
             if vv:
                 doc[k_dst] = vv
+
+    if event_type == "proc_exec":
+        doc["proc_pid"] = _as_int(extra.get("pid"))
+        doc["proc_ppid"] = _as_int(extra.get("ppid"))
+        doc["proc_name"] = _as_str(extra.get("exe_name") or extra.get("comm") or extra.get("binary"))
+        doc["proc_exe"] = _as_str(extra.get("exe_path"))
+        doc["proc_parent_name"] = _as_str(extra.get("parent_exe_name") or extra.get("parent_comm"))
+
+    if event_type in FIM_EVENT_TYPES:
+        doc["fim_path"] = _as_str(extra.get("path"))
+        doc["fim_category"] = _as_str(extra.get("path_category"))
+
+    if event_type in HEURISTIC_EVENT_TYPES:
+        doc["heuristic_name"] = _as_str(
+            extra.get("heuristic_name") or extra.get("heuristic_kind") or extra.get("reason_kind")
+        )
+        doc["heuristic_confidence"] = _as_int(extra.get("confidence"))
 
     tokens = [str(doc[k]) for k in EXTRA_SEARCH_KEYS if doc.get(k)]
     if tokens:
