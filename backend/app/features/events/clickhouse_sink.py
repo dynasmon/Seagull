@@ -55,7 +55,12 @@ def _severity_from_extra(extra: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) -> int:
+def write_clickhouse_events(
+    *,
+    ch_client: Any,
+    hot_rows: List[Dict[str, Any]],
+    dedup_token: Optional[str] = None,
+) -> int:
     if not hot_rows:
         return 0
 
@@ -117,13 +122,13 @@ def write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) -
             )
         )
 
-    dedup_token = _insert_dedup_token(hot_rows)
+    token = dedup_token or _insert_dedup_token(hot_rows)
     insert_settings = (
         {
-            "insert_deduplication_token": dedup_token,
+            "insert_deduplication_token": token,
             "deduplicate_blocks_in_dependent_materialized_views": 1,
         }
-        if dedup_token
+        if token
         else None
     )
     ch_client.insert(
