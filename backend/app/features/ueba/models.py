@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -136,7 +149,7 @@ class UebaFindingEvidenceModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     finding_id = Column(Integer, ForeignKey("ueba_findings.id", ondelete="CASCADE"), nullable=False, index=True)
-    event_id = Column(Integer, nullable=True, index=True)
+    event_id = Column(BigInteger, nullable=True, index=True)
     alert_id = Column(Integer, nullable=True, index=True)
 
     evidence_type = Column(String(32), nullable=False)

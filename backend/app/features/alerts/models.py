@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -166,7 +166,7 @@ class AlertEvidenceModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     alert_id = Column(Integer, nullable=False, index=True)
-    event_id = Column(Integer, nullable=True)
+    event_id = Column(BigInteger, nullable=True)
 
     # What kind of evidence this is and its role in the alert
     evidence_type = Column(String(32), nullable=False)

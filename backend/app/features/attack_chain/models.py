@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -47,7 +47,7 @@ class AttackChainStepModel(Base):
     fingerprint = Column(String(192), index=True, nullable=False)
 
     # References back to the original telemetry evidence (optional but preferred).
-    event_id = Column(Integer, ForeignKey("net_events.id", ondelete="SET NULL"), index=True, nullable=True)
+    event_id = Column(BigInteger, ForeignKey("net_events.id", ondelete="SET NULL"), index=True, nullable=True)
     event_type = Column(String(32), nullable=True)
 
     timestamp = Column(DateTime(timezone=True), index=True, nullable=False, server_default=func.now())
