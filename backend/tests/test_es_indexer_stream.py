@@ -166,7 +166,7 @@ class _FakeES:
         return self.reachable
 
 
-def _fake_bulk(es: _FakeES, actions: List[Dict[str, Any]], request_timeout: int) -> Tuple[int, List[Any]]:
+def _fake_bulk(es: _FakeES, actions: List[Dict[str, Any]], *, request_timeout: int) -> Tuple[int, List[Any]]:
     if not es.reachable:
         raise ConnectionError("es down")
     success = 0
@@ -210,7 +210,7 @@ def _cfg(**over: Any) -> ESStreamConfig:
 
 @pytest.fixture(autouse=True)
 def _patch_bulk_and_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(es_stream, "_run_bulk", _fake_bulk)
+    monkeypatch.setattr(es_stream, "run_bulk", _fake_bulk)
     monkeypatch.setattr(es_stream, "_sleep", lambda *_a, **_k: None)
 
 
