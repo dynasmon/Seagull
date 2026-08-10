@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -70,7 +70,7 @@ class CorrelationIncidentEvidenceModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     incident_id = Column(Integer, ForeignKey("correlation_incidents.id", ondelete="CASCADE"), nullable=False, index=True)
     alert_id = Column(Integer, nullable=True, index=True)
-    net_event_id = Column(Integer, nullable=True, index=True)
+    net_event_id = Column(BigInteger, nullable=True, index=True)
     evidence_type = Column(String(32), nullable=False, default="alert")
     rule_id = Column(String(128), nullable=True)
     stage = Column(String(64), nullable=True)
