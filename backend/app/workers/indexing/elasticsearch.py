@@ -12,7 +12,7 @@ from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
-from app.shared.es_hosts import es_hosts
+from app.shared.indexing.es_client import build_es_client
 from app.shared.indexing.es_doc import build_event_doc as _to_doc
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 from app.workers.indexing.es_bootstrap import ESConfig, bootstrap, load_config
@@ -55,18 +55,14 @@ def _fetch_events(after_id: int, limit: int) -> List[Dict[str, Any]]:
 
 
 def _build_es_client(cfg: ESConfig):
-    from elasticsearch import Elasticsearch
-
-    kwargs: Dict[str, Any] = {
-        "request_timeout": cfg.request_timeout_seconds,
-    }
-    if cfg.username and cfg.password:
-        kwargs["basic_auth"] = (cfg.username, cfg.password)
-    kwargs["verify_certs"] = cfg.verify_certs
-    if cfg.ca_certs:
-        kwargs["ca_certs"] = cfg.ca_certs
-
-    return Elasticsearch(es_hosts(cfg.url), **kwargs)
+    return build_es_client(
+        url=cfg.url,
+        request_timeout_seconds=cfg.request_timeout_seconds,
+        username=cfg.username,
+        password=cfg.password,
+        verify_certs=cfg.verify_certs,
+        ca_certs=cfg.ca_certs,
+    )
 
 
 def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
