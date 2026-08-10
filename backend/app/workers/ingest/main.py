@@ -27,14 +27,16 @@ from app.features.ingest.control.service import (
     storm_maybe_open_alert,
     worker_heartbeat,
 )
+from app.shared.indexing.identity import event_fingerprint
+from app.shared.outbox import store
+from app.shared.outbox.models import SINK_CLICKHOUSE, SINK_WARM
 
-from .config import load_config
+from .config import WorkerConfig, load_config
 from .es_stream_producer import publish_index_events
 from .hot_store import _insert_hot_rows_with_pg_ids
-from .parser import _event_fingerprint, _event_from_wire
+from .parser import event_from_wire, hot_event_from_wire
 from .queue import _decr_backlog_events, _requeue_processing, _requeue_processing_with_retry_cap
 from .rollup import upsert_rollups
-from .sink_runtime import _OptionalSinkRuntime
 
 setup_logging("worker-ingest")
 logger = logging.getLogger("seagull.worker.ingest")
@@ -69,41 +71,39 @@ def _parse_rollup_row(rr: Any) -> Optional[Dict[str, Any]]:
     }
 
 
-def _parse_warm_doc(ev: List[Any]) -> Dict[str, Any] | None:
-    agent_id = ev[0] if len(ev) > 0 else None
-    event_type = ev[1] if len(ev) > 1 else None
-    if not agent_id or not event_type:
-        return None
-
-    try:
-        ts = datetime.fromisoformat(ev[3]) if (len(ev) > 3 and ev[3]) else datetime.utcnow()
-    except Exception:
-        ts = datetime.utcnow()
-
-    try:
-        schema_v = int(ev[2] or 1)
-    except Exception:
-        schema_v = 1
-
-    bytes_v = ev[9] if (len(ev) > 9) else None
-    try:
-        bytes_v = int(bytes_v) if bytes_v is not None else 0
-    except Exception:
-        bytes_v = 0
-
-    return {
-        "agent_id": agent_id,
-        "event_type": event_type,
-        "schema_version": schema_v,
-        "timestamp": ts,
-        "src_ip": ev[4] if (len(ev) > 4 and ev[4]) else None,
-        "dst_ip": ev[5] if (len(ev) > 5 and ev[5]) else None,
-        "src_port": int(ev[6]) if (len(ev) > 6 and ev[6] is not None) else None,
-        "dst_port": int(ev[7]) if (len(ev) > 7 and ev[7] is not None) else None,
-        "proto": ev[8] if (len(ev) > 8 and ev[8]) else None,
-        "bytes": bytes_v,
-        "extra": ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {},
+def _analytics_events(
+    analytics_rows: List[Dict[str, Any]],
+    inserted_hot_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    hot_id_by_fingerprint = {
+        event_fingerprint(row): int(row.get("pg_event_id") or 0) for row in inserted_hot_rows
     }
+    seen: set[str] = set()
+    events: List[Dict[str, Any]] = []
+    for row in analytics_rows:
+        fingerprint = event_fingerprint(row)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        event = dict(row)
+        pg_event_id = hot_id_by_fingerprint.get(fingerprint)
+        if pg_event_id:
+            event["pg_event_id"] = pg_event_id
+        events.append(event)
+    return events
+
+
+def _enqueue_sinks(
+    conn: Any,
+    cfg: WorkerConfig,
+    *,
+    analytics_events: List[Dict[str, Any]],
+    warm_events: List[Dict[str, Any]],
+) -> None:
+    if cfg.clickhouse_enabled and analytics_events:
+        store.enqueue(conn, sink=SINK_CLICKHOUSE, events=analytics_events, chunk_size=cfg.outbox_chunk_events)
+    if cfg.warm_enabled and warm_events:
+        store.enqueue(conn, sink=SINK_WARM, events=warm_events, chunk_size=cfg.outbox_chunk_events)
 
 
 def main() -> None:
@@ -121,8 +121,6 @@ def main() -> None:
 
     _requeue_processing(r, cfg)
     worker_id = f"ingest-{uuid.uuid4().hex[:8]}"
-    sink_runtime = _OptionalSinkRuntime(cfg=cfg, redis_client=r)
-    sink_runtime.start()
 
     backoff = 0.25
     last_metrics_sample = 0.0
@@ -166,7 +164,7 @@ def main() -> None:
             hot_rows: List[Dict[str, Any]] = []
             analytics_rows: List[Dict[str, Any]] = []
             rollup_rows: List[Dict[str, Any]] = []
-            warm_docs: List[Dict[str, Any]] = []
+            warm_events: List[Dict[str, Any]] = []
 
             total_received = 0
             received_by_raw: Dict[str, int] = {}
@@ -190,12 +188,12 @@ def main() -> None:
                     pass
 
                 for ev in msg.get("hot_events") or []:
-                    row = _event_from_wire(ev)
+                    row = hot_event_from_wire(ev)
                     if row is not None:
                         hot_rows.append(row)
 
                 for ev in msg.get("analytics_events") or []:
-                    row = _event_from_wire(ev)
+                    row = hot_event_from_wire(ev)
                     if row is not None:
                         analytics_rows.append(row)
 
@@ -206,9 +204,9 @@ def main() -> None:
 
                 if cfg.warm_enabled:
                     for ev in msg.get("warm_events") or []:
-                        doc = _parse_warm_doc(ev)
-                        if doc is not None:
-                            warm_docs.append(doc)
+                        row = event_from_wire(ev)
+                        if row is not None:
+                            warm_events.append(row)
 
             inserted_hot_rows: List[Dict[str, Any]] = []
             hot_path_started = time.perf_counter()
@@ -223,6 +221,12 @@ def main() -> None:
                             upsert_rollups(conn, rollup_rows)
                     except Exception as rollup_exc:
                         rollup_error = type(rollup_exc).__name__
+                _enqueue_sinks(
+                    conn,
+                    cfg,
+                    analytics_events=_analytics_events(analytics_rows, inserted_hot_rows),
+                    warm_events=warm_events,
+                )
 
             if hot_rows or rollup_rows:
                 last_commit_wall = time.time()
@@ -236,37 +240,6 @@ def main() -> None:
                     "ingest_rollup_write_error",
                     error_type=rollup_error,
                     rollup_rows=len(rollup_rows),
-                )
-
-            hot_id_by_fp = {_event_fingerprint(row): int(row.get("pg_event_id") or 0) for row in inserted_hot_rows}
-            analytics_rows_for_ch: List[Dict[str, Any]] = []
-            if analytics_rows:
-                seen_fp: set[str] = set()
-                for row in analytics_rows:
-                    fp = _event_fingerprint(row)
-                    if fp in seen_fp:
-                        continue
-                    seen_fp.add(fp)
-                    item = dict(row)
-                    mapped_pg_id = hot_id_by_fp.get(fp)
-                    if mapped_pg_id:
-                        item["pg_event_id"] = mapped_pg_id
-                    analytics_rows_for_ch.append(item)
-
-            if analytics_rows_for_ch and not sink_runtime.enqueue_clickhouse(analytics_rows_for_ch):
-                log_event(
-                    logger,
-                    "warning",
-                    "ingest_clickhouse_enqueue_drop",
-                    dropped_rows=len(analytics_rows_for_ch),
-                )
-
-            if warm_docs and not sink_runtime.enqueue_warm(warm_docs):
-                log_event(
-                    logger,
-                    "warning",
-                    "ingest_warm_enqueue_drop",
-                    dropped_rows=len(warm_docs),
                 )
 
             if cfg.es_stream_producer_enabled and inserted_hot_rows:
