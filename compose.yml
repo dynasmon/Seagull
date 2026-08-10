@@ -405,7 +405,8 @@ services:
       interval: 10s
       timeout: 4s
       retries: 20
-      start_period: 25s
+      start_period: ${SEAGULL_BACKEND_HEALTH_START_PERIOD:-10m}
+      start_interval: ${SEAGULL_BACKEND_HEALTH_START_INTERVAL:-5s}
     restart: unless-stopped
 
   seagull-ingest-pipeline:
