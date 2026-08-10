@@ -14,7 +14,8 @@ import redis
 from app.core.config import settings
 from app.core.config.env_secrets import env_value, getenv_compat
 from app.core.observability import incr_counter, init_counter, log_event, observe_hist, set_gauge, setup_logging
-from app.shared.es_hosts import es_hosts
+from app.shared.indexing.bulk import is_permanent_status, parse_bulk_errors, run_bulk
+from app.shared.indexing.es_client import build_es_client
 from app.shared.indexing.es_doc import build_event_doc
 from app.workers.indexing.es_bootstrap import ESConfig, bootstrap, load_config
 
@@ -107,15 +108,14 @@ class _Entry:
 
 
 def _build_es_client(cfg: ESConfig) -> Any:
-    from elasticsearch import Elasticsearch
-
-    kwargs: Dict[str, Any] = {"request_timeout": cfg.request_timeout_seconds}
-    if cfg.username and cfg.password:
-        kwargs["basic_auth"] = (cfg.username, cfg.password)
-    kwargs["verify_certs"] = cfg.verify_certs
-    if cfg.ca_certs:
-        kwargs["ca_certs"] = cfg.ca_certs
-    return Elasticsearch(es_hosts(cfg.url), **kwargs)
+    return build_es_client(
+        url=cfg.url,
+        request_timeout_seconds=cfg.request_timeout_seconds,
+        username=cfg.username,
+        password=cfg.password,
+        verify_certs=cfg.verify_certs,
+        ca_certs=cfg.ca_certs,
+    )
 
 
 def _build_redis_client(cfg: ESStreamConfig) -> "redis.Redis":
@@ -129,18 +129,6 @@ def _build_redis_client(cfg: ESStreamConfig) -> "redis.Redis":
         socket_connect_timeout=5.0,
         socket_timeout=socket_timeout,
         health_check_interval=30,
-    )
-
-
-def _run_bulk(es: Any, actions: List[Dict[str, Any]], request_timeout: int) -> Tuple[int, List[Any]]:
-    from elasticsearch import helpers
-
-    return helpers.bulk(
-        es,
-        actions,
-        request_timeout=request_timeout,
-        raise_on_error=False,
-        raise_on_exception=False,
     )
 
 
@@ -210,36 +198,6 @@ def _parse_entry(entry_row: Any) -> Optional[_Entry]:
     return _Entry(entry_id=entry_id, row=row, raw=raw)
 
 
-def _is_permanent(status: int) -> bool:
-    return 400 <= status < 500 and status != 429
-
-
-def _parse_bulk_errors(errors: List[Any]) -> Dict[str, Tuple[int, str]]:
-    out: Dict[str, Tuple[int, str]] = {}
-    for err in errors or []:
-        if not isinstance(err, dict):
-            continue
-        for op, info in err.items():
-            if not isinstance(info, dict):
-                continue
-            doc_id = info.get("_id")
-            if doc_id is None:
-                continue
-            status = 0
-            try:
-                status = int(info.get("status") or 0)
-            except Exception:
-                status = 0
-            detail = info.get("error")
-            reason = ""
-            if isinstance(detail, dict):
-                reason = str(detail.get("type") or detail.get("reason") or "")[:80]
-            elif detail:
-                reason = str(detail)[:80]
-            out[str(doc_id)] = (status, reason or str(op))
-    return out
-
-
 def _observe_lag(row: Dict[str, Any], now_epoch: float) -> None:
     ts = row.get("timestamp")
     if not isinstance(ts, str) or not ts:
@@ -298,8 +256,8 @@ def _process_batch(*, r: Any, es: Any, es_cfg: ESConfig, cfg: ESStreamConfig, en
         return 0
 
     try:
-        _success, raw_errors = _run_bulk(es, actions, es_cfg.request_timeout_seconds)
-        failed = _parse_bulk_errors(raw_errors)
+        _success, raw_errors = run_bulk(es, actions, request_timeout=es_cfg.request_timeout_seconds)
+        failed = parse_bulk_errors(raw_errors)
         unreachable = False
     except Exception as exc:
         failed = {did: (503, type(exc).__name__) for did in by_docid}
@@ -319,7 +277,7 @@ def _process_batch(*, r: Any, es: Any, es_cfg: ESConfig, cfg: ESStreamConfig, en
             continue
 
         status, reason = failed[did]
-        if not unreachable and _is_permanent(status):
+        if not unreachable and is_permanent_status(status):
             incr_counter("es_indexer_bulk_error_total", reason="permanent")
             incr_counter("es_indexer_dlq_total", reason="permanent")
             _dlq(r, cfg, entry, reason=f"permanent_{status}", error=reason, doc_id=did)
