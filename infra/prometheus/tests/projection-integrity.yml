@@ -1,0 +1,200 @@
+rule_files:
+  - ../rules/seagull-projections.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: a draining outbox with no divergence raises nothing
+    input_series:
+      - series: 'sink_outbox_oldest_age_seconds{sink="clickhouse"}'
+        values: "5+0x60"
+      - series: 'sink_outbox_dead_letter_events{sink="clickhouse"}'
+        values: "0+0x60"
+      - series: 'projection_divergence_ratio{sink="clickhouse"}'
+        values: "0+0x60"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: SinkOutboxBacklogStalled
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: SinkOutboxDeadLetterGrowing
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: ProjectionDivergenceElevated
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: ProjectionReconcilerStale
+        exp_alerts: []
+
+  - interval: 1m
+    name: an outbox stuck for fifteen minutes opens the backlog alert
+    input_series:
+      - series: 'sink_outbox_oldest_age_seconds{sink="clickhouse"}'
+        values: "960+0x60"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SinkOutboxBacklogStalled
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SinkOutboxBacklogStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: projections
+              sink: clickhouse
+            exp_annotations:
+              summary: The clickhouse outbox has been stuck for 15 minutes
+              description: >-
+                The ingest worker writes every analytical batch to event_outbox in
+                the same transaction that persists net_events, and the dispatcher
+                deletes the row only after the sink confirms the write. A backlog
+                that stops draining means the sink is refusing the data, not that
+                the data was lost: nothing is dropped while the row is still there.
+                Check the dispatcher logs for sink_batch_not_settled to see the
+                error the sink returned, and confirm ClickHouse or Elasticsearch is
+                reachable from the ingest pipeline container. Hunt and the analytics
+                pages read the projection, so they stay behind the hot store until
+                the backlog drains.
+
+  - interval: 1m
+    name: any dead letter opens a critical alert
+    input_series:
+      - series: 'sink_outbox_dead_letter_events{sink="warm"}'
+        values: "0x5 12+0x60"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: SinkOutboxDeadLetterGrowing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SinkOutboxDeadLetterGrowing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              subsystem: projections
+              sink: warm
+            exp_annotations: &dead_letter_annotations
+              summary: Events for warm were moved to the outbox dead letter
+              description: >-
+                Delivery gave up on these events: either the sink rejected them
+                permanently (a 4xx that retrying cannot fix, usually a mapping
+                conflict) or they exhausted SEAGULL_SINK_MAX_ATTEMPTS. They exist in
+                PostgreSQL and are missing from the projection, so hunt and the
+                analytics pages under-report until they are replayed. Inspect them
+                with SELECT sink, reason, error, event_count FROM
+                event_outbox_dead_letter ORDER BY failed_at DESC, fix the cause, and
+                re-enqueue by copying the payload back into event_outbox. Rows are
+                purged after SEAGULL_SINK_DEAD_LETTER_RETENTION_DAYS.
+
+  - interval: 1m
+    name: only the sink that lost events alerts
+    input_series:
+      - series: 'sink_outbox_dead_letter_events{sink="warm"}'
+        values: "12+0x60"
+      - series: 'sink_outbox_dead_letter_events{sink="clickhouse"}'
+        values: "0+0x60"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SinkOutboxDeadLetterGrowing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              subsystem: projections
+              sink: warm
+            exp_annotations: *dead_letter_annotations
+
+  - interval: 1m
+    name: one percent divergence opens the reconciler alert
+    input_series:
+      - series: 'projection_divergence_ratio{sink="search"}'
+        values: "0.02+0x60"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProjectionDivergenceElevated
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: ProjectionDivergenceElevated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: projections
+              sink: search
+            exp_annotations:
+              summary: The search projection is missing 1% of the hot store
+              description: >-
+                The reconciler compared each settled minute in PostgreSQL against
+                the projection and found events the projection does not have. The
+                reconciler re-enqueues what is missing, bounded by
+                SEAGULL_PROJECTION_REPAIR_MAX_EVENTS, so a ratio that keeps rising
+                means the loss outpaces the repair budget or the repair itself is
+                failing. Cross-check sink_outbox_dead_letter_events for the same
+                sink, and read projection_missing_events for the absolute count.
+                Divergence is expected while ingestion sheds load under a storm; the
+                reconciler skips those passes, so an alert here is not sampling.
+
+  - interval: 1m
+    name: a projection that cannot be read opens its own alert
+    input_series:
+      - series: 'projection_reconcile_errors_total{sink="search"}'
+        values: "0+1x60"
+      - series: 'projection_reconcile_errors_total{sink="clickhouse"}'
+        values: "0+0x60"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ProjectionReconcileFailing
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ProjectionReconcileFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: projections
+              sink: search
+            exp_annotations:
+              summary: The search projection cannot be reconciled
+              description: >-
+                Every pass for 15 minutes failed to read this projection, so its
+                divergence gauge is frozen at the last value it managed to compute
+                and silent loss would go unnoticed. The other sinks keep being
+                reconciled — a failure here is isolated on purpose — so this is
+                about reaching the store, not about the events. Look for
+                projection_reconcile_sink_failed in the reconciler logs; the usual
+                causes are the store being down, credentials rotated out from under
+                the worker, or a query timeout on a lookback window that grew too
+                large.
+
+  - interval: 1m
+    name: a transient failure that stops does not alert
+    input_series:
+      - series: 'projection_reconcile_errors_total{sink="search"}'
+        values: "0+1x5 5+0x60"
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: ProjectionReconcileFailing
+        exp_alerts: []
+
+  - interval: 1m
+    name: losing the reconciler opens the stale alert
+    input_series:
+      - series: 'projection_divergence_ratio{sink="clickhouse"}'
+        values: "0x10 _x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ProjectionReconcilerStale
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: ProjectionReconcilerStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: projections
+            exp_annotations:
+              summary: Projection divergence is no longer being reported
+              description: >-
+                The reconciler has not published projection_divergence_ratio for 30
+                minutes, so silent projection loss would no longer be detected. It
+                runs as the projection-reconciler child of the ingest worker group;
+                check that the child is up and look for projection_reconcile_error
+                in its logs. A reconciler that only skips passes because ingestion
+                is shedding logs projection_reconcile_skipped_backpressure and does
+                not clear the metric.
