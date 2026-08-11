@@ -69,6 +69,10 @@ def processing_key() -> str:
     return _env_str("SEAGULL_INGEST_PROCESSING_KEY", f"{qk}:processing")
 
 
+def deadletter_key() -> str:
+    return f"{queue_key()}:deadletter"
+
+
 def backlog_events_key() -> str:
     return _env_str("SEAGULL_INGEST_BACKLOG_EVENTS_KEY", "seagull:ingest:backlog_events")
 
