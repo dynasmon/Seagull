@@ -5,11 +5,11 @@ import os
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.workers.ingest.parser import _event_hot_columns
+from app.workers.ingest.parser import event_hot_columns
 
 
 def test_event_hot_columns_normalizes_protocol_fields() -> None:
-    out = _event_hot_columns(
+    out = event_hot_columns(
         event_type="dns",
         extra={
             "app_proto": "dns",
@@ -37,7 +37,7 @@ def test_event_hot_columns_normalizes_protocol_fields() -> None:
 
 
 def test_event_hot_columns_sets_ssh_fields_when_event_is_ssh_auth() -> None:
-    out = _event_hot_columns(
+    out = event_hot_columns(
         event_type="ssh_auth",
         extra={
             "action": "failed_password",
@@ -53,7 +53,7 @@ def test_event_hot_columns_sets_ssh_fields_when_event_is_ssh_auth() -> None:
 
 
 def test_event_hot_columns_sets_process_and_fim_fields() -> None:
-    proc = _event_hot_columns(
+    proc = event_hot_columns(
         event_type="proc_exec",
         extra={
             "pid": 123,
@@ -69,7 +69,7 @@ def test_event_hot_columns_sets_process_and_fim_fields() -> None:
     assert proc["proc_exe"] == "/usr/bin/bash"
     assert proc["proc_parent_name"] == "nginx"
 
-    fim = _event_hot_columns(
+    fim = event_hot_columns(
         event_type="persistence_systemd",
         extra={"path": "/etc/systemd/system/evil.service", "path_category": "systemd_unit"},
     )
@@ -78,7 +78,7 @@ def test_event_hot_columns_sets_process_and_fim_fields() -> None:
 
 
 def test_event_hot_columns_sets_heuristic_fields() -> None:
-    out = _event_hot_columns(
+    out = event_hot_columns(
         event_type="beacon_suspect",
         extra={"heuristic_name": "beacon_periodic", "confidence": 91},
     )
