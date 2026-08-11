@@ -1,7 +1,28 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.features.events.storage_contract import (
+    AGENT_ID_MAX_CHARS,
+    AGENT_ID_PATTERN,
+    BYTE_COUNT_MAX,
+    BYTE_COUNT_MIN,
+    EVENT_ID_CHARS,
+    EVENT_ID_PATTERN,
+    EVENT_TYPE_MAX_CHARS,
+    EVENT_TYPE_PATTERN,
+    IP_MAX_CHARS,
+    PORT_MAX,
+    PORT_MIN,
+    PROTO_MAX_CHARS,
+    SCHEMA_VERSION_MAX,
+    SCHEMA_VERSION_MIN,
+    VIOLATION_NOT_AN_IP,
+    clean_text,
+    extra_violation,
+    is_ip_address,
+)
 
 QuerySource = Literal["clickhouse", "elasticsearch", "postgres", "recent_feed", "rollup_1s", "live_1s"]
 
@@ -21,16 +42,71 @@ class QueryProvenanceMeta(BaseModel):
 class NetEvent(BaseModel):
     event_id: Optional[str] = Field(
         None,
-        min_length=36,
-        max_length=36,
-        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+        min_length=EVENT_ID_CHARS,
+        max_length=EVENT_ID_CHARS,
+        pattern=EVENT_ID_PATTERN,
     )
-    agent_id: str = Field(..., description="Agent identifier")
+    agent_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=AGENT_ID_MAX_CHARS,
+        pattern=AGENT_ID_PATTERN,
+        description="Agent identifier",
+    )
     event_type: str = Field(
         ...,
+        min_length=1,
+        max_length=EVENT_TYPE_MAX_CHARS,
+        pattern=EVENT_TYPE_PATTERN,
         description="Event type (flow, conn, dns, http, alert, etc.)",
     )
-    schema_version: int = Field(1, ge=1, le=16, description="Schema version")
+    schema_version: int = Field(
+        1,
+        ge=SCHEMA_VERSION_MIN,
+        le=SCHEMA_VERSION_MAX,
+        description="Schema version",
+    )
+    timestamp: datetime
+
+    src_ip: Optional[str] = Field(None, max_length=IP_MAX_CHARS)
+    dst_ip: Optional[str] = Field(None, max_length=IP_MAX_CHARS)
+    src_port: Optional[int] = Field(None, ge=PORT_MIN, le=PORT_MAX)
+    dst_port: Optional[int] = Field(None, ge=PORT_MIN, le=PORT_MAX)
+    proto: Optional[str] = Field(None, max_length=PROTO_MAX_CHARS)
+    bytes: Optional[int] = Field(None, ge=BYTE_COUNT_MIN, le=BYTE_COUNT_MAX)
+
+    extra: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata about the event",
+    )
+
+    @field_validator("src_ip", "dst_ip", "proto", mode="before")
+    @classmethod
+    def _absent_when_blank(cls, value: Any) -> Any:
+        return clean_text(value) if isinstance(value, str) else value
+
+    @field_validator("src_ip", "dst_ip")
+    @classmethod
+    def _reject_non_ip(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not is_ip_address(value):
+            raise ValueError(VIOLATION_NOT_AN_IP)
+        return value
+
+    @field_validator("extra")
+    @classmethod
+    def _reject_oversized_extra(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        reason = extra_violation(value)
+        if reason is not None:
+            raise ValueError(reason)
+        return value
+
+
+class NetEventDB(BaseModel):
+    id: int = Field(..., description="Database event identifier")
+    event_id: Optional[str] = None
+    agent_id: str = ""
+    event_type: str = ""
+    schema_version: int = 1
     timestamp: datetime
 
     src_ip: Optional[str] = None
@@ -40,14 +116,7 @@ class NetEvent(BaseModel):
     proto: Optional[str] = None
     bytes: Optional[int] = None
 
-    extra: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional metadata about the event",
-    )
-
-
-class NetEventDB(NetEvent):
-    id: int = Field(..., description="Database event identifier")
+    extra: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
 
