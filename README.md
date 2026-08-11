@@ -272,7 +272,9 @@ The portal targets Node 20+ and npm 10+; the backend runs Python 3.12.
 | [detections/attack_stories.md](docs/detections/attack_stories.md) | Attack-chain templates and scoring. |
 | [detections/backtesting.md](docs/detections/backtesting.md) | Detection validation. |
 | [detections/sigma_import.md](docs/detections/sigma_import.md) | Sigma import and review. |
+| [ingest/admission.md](docs/ingest/admission.md) | Event contract, body ceilings and dead letter operations. |
 | [workers/architecture.md](docs/workers/architecture.md) | Worker group manager behavior. |
+| [workers/analytical_sinks.md](docs/workers/analytical_sinks.md) | Outbox delivery to ClickHouse and Elasticsearch. |
 | [observability/architecture.md](docs/observability/architecture.md) | Metrics and observability APIs. |
 
 Detection content lives in [`rules/`](rules/). The API is documented at `/docs`
