@@ -213,6 +213,7 @@ class Settings:
     SEAGULL_TRUSTED_PROXY_CIDRS: str = _env_str("SEAGULL_TRUSTED_PROXY_CIDRS", "127.0.0.1,::1") or "127.0.0.1,::1"
     SEAGULL_ALLOWED_HOSTS: list[str] = _env_csv("SEAGULL_ALLOWED_HOSTS", "*")
     SEAGULL_MAX_REQUEST_BODY_BYTES: int = _env_int("SEAGULL_MAX_REQUEST_BODY_BYTES", 2 * 1024 * 1024)
+    SEAGULL_INGEST_MAX_REQUEST_BODY_BYTES: int = _env_int("SEAGULL_INGEST_MAX_REQUEST_BODY_BYTES", 8 * 1024 * 1024)
     SEAGULL_AUDIT_HASH_PEPPER: str | None = _env_str("SEAGULL_AUDIT_HASH_PEPPER", None)
     SEAGULL_AUDIT_RETENTION_ENABLED: bool = _env_bool("SEAGULL_AUDIT_RETENTION_ENABLED", True)
     SEAGULL_AUDIT_RETENTION_DAYS: int = _env_int(
@@ -679,6 +680,8 @@ class Settings:
             errors.append("SEAGULL_INGEST_MAX_BATCH must be >= 1")
         if (self.SEAGULL_MAX_REQUEST_BODY_BYTES or 0) < 1024:
             errors.append("SEAGULL_MAX_REQUEST_BODY_BYTES must be >= 1024")
+        if (self.SEAGULL_INGEST_MAX_REQUEST_BODY_BYTES or 0) < (self.SEAGULL_MAX_REQUEST_BODY_BYTES or 0):
+            errors.append("SEAGULL_INGEST_MAX_REQUEST_BODY_BYTES must be >= SEAGULL_MAX_REQUEST_BODY_BYTES")
         if (self.SEAGULL_REDIS_PORT or 0) < 1:
             errors.append("SEAGULL_REDIS_PORT must be >= 1")
         if self.SEAGULL_ES_INDEXER_SOURCE not in {"redis", "redpanda"}:
@@ -937,6 +940,7 @@ class Settings:
                 "clickhouse_ping_ttl_seconds": int(self.SEAGULL_CLICKHOUSE_PING_TTL_SECONDS),
                 "use_clickhouse_mvs": bool(self.SEAGULL_USE_CLICKHOUSE_MVS),
                 "request_body_max_bytes": self.SEAGULL_MAX_REQUEST_BODY_BYTES,
+                "ingest_request_body_max_bytes": self.SEAGULL_INGEST_MAX_REQUEST_BODY_BYTES,
                 "clock_skew_max_seconds": self.SEAGULL_MAX_EVENT_CLOCK_SKEW_SECONDS,
                 "allowed_hosts": list(self.SEAGULL_ALLOWED_HOSTS or []),
                 "realtime_stream_token_ttl_seconds": int(self.SEAGULL_REALTIME_STREAM_TOKEN_TTL_SECONDS),
