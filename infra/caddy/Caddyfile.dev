@@ -41,6 +41,9 @@
 	}
 
 	handle_path /api/* {
+		request_body {
+			max_size {$SEAGULL_EDGE_MAX_BODY:2MiB}
+		}
 		reverse_proxy seagull-backend:8000 {
 			header_up -X-Agent-Cert-CN
 			header_down Set-Cookie "(?i)Path=/auth(;|$)" "Path=/api/auth$1"
@@ -61,6 +64,9 @@
 	}
 
 	handle_path /agent/* {
+		request_body {
+			max_size {$SEAGULL_EDGE_AGENT_MAX_BODY:8MiB}
+		}
 		reverse_proxy seagull-backend:8000 {
 			header_up X-Agent-Cert-CN {http.request.tls.client.subject}
 		}
@@ -77,6 +83,9 @@
 		path /enroll
 	}
 	handle @enroll {
+		request_body {
+			max_size {$SEAGULL_EDGE_ENROLL_MAX_BODY:256KiB}
+		}
 		rewrite * /agents/enroll
 		reverse_proxy seagull-backend:8000 {
 			header_up -X-Agent-Cert-CN
