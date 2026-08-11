@@ -20,6 +20,7 @@ from app.features.events.rollup_keys import (
     rollup_event_type,
     rollup_proto,
 )
+from app.features.ingest.control import deadletter
 from app.features.ingest.control.service import (
     get_storm_status,
     record_worker_progress,
@@ -136,6 +137,7 @@ def main() -> None:
                 try:
                     set_gauge("ingest_queue_depth", int(r.llen(cfg.queue_key) or 0), queue="pending")
                     set_gauge("ingest_queue_depth", int(r.llen(cfg.processing_key) or 0), queue="processing")
+                    set_gauge("ingest_queue_depth", deadletter.depth(r), queue="deadletter")
                     set_gauge(
                         "ingest_hot_store_last_commit_age_seconds",
                         max(0.0, time.time() - last_commit_wall),
