@@ -16,6 +16,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from app.core.api.body_limit import RequestBodyLimitMiddleware, policy_from_settings
 from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.db import engine, read_router, start_replica_monitor, stop_replica_monitor
@@ -199,20 +200,7 @@ if settings.SEAGULL_ALLOWED_HOSTS and settings.SEAGULL_ALLOWED_HOSTS != ["*"]:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.SEAGULL_ALLOWED_HOSTS)
 
 
-@app.middleware("http")
-async def request_size_guard(request: Request, call_next):
-    max_body_bytes = max(1024, int(settings.SEAGULL_MAX_REQUEST_BODY_BYTES or 0))
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            if int(content_length, 10) > max_body_bytes:
-                return JSONResponse(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    content={"detail": "request payload too large"},
-                )
-        except ValueError:
-            pass
-    return await call_next(request)
+app.add_middleware(RequestBodyLimitMiddleware, policy=policy_from_settings())
 
 
 def _route_label(request: Request) -> str:
