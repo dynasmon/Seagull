@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.features.events import api as events_api
+from app.features.events.domain import normalizers
 
 
 def test_row_to_event_safe_parses_string_timestamp_and_json_extra() -> None:
@@ -24,7 +24,7 @@ def test_row_to_event_safe_parses_string_timestamp_and_json_extra() -> None:
         "extra": '{"action":"failed_password","username":"root"}',
     }
 
-    ev = events_api._row_to_event_safe(row)
+    ev = normalizers._row_to_event_safe(row)
 
     assert ev is not None
     assert ev.id == 42
@@ -36,7 +36,7 @@ def test_row_to_event_safe_parses_string_timestamp_and_json_extra() -> None:
 
 def test_strip_large_extra_caps_value_size() -> None:
     huge = "x" * 6000
-    out = events_api._strip_large_extra({"raw_message": huge})
+    out = normalizers._strip_large_extra({"raw_message": huge})
     assert isinstance(out, dict)
     assert len(out["raw_message"]) == 4096
 
