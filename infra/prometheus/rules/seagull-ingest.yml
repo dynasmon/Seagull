@@ -1,0 +1,55 @@
+groups:
+  - name: seagull-ingest
+    rules:
+      - alert: IngestDeadLetterNotEmpty
+        expr: max(ingest_queue_depth{queue="deadletter"}) > 0
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: ingest
+        annotations:
+          summary: Ingest batches are parked in the dead letter list
+          description: >-
+            A batch reached SEAGULL_INGEST_WORKER_MAX_MESSAGE_RETRIES without
+            committing, so the worker parked it instead of retrying forever.
+            The events are accepted by the API and absent from the hot store
+            until someone acts. Inspect the batches with GET /ingest/deadletter,
+            which returns counts and ages but never the payloads, fix what made
+            the transaction fail, then replay with POST
+            /ingest/deadletter/redrive. The list holds the 200 most recent
+            batches for seven days, so an unattended alert becomes data loss.
+      - alert: IngestRequestBodiesRejected
+        expr: sum by (policy) (rate(http_request_body_rejected_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: ingest
+        annotations:
+          summary: Requests on the {{ $labels.policy }} limit are being rejected for size
+          description: >-
+            The backend counted more bytes than the {{ $labels.policy }} ceiling
+            allows and answered 413 before reading the rest. A sustained rate
+            means a producer keeps retrying a body it can never deliver, so its
+            data never lands. Either the agent is batching beyond
+            SEAGULL_INGEST_MAX_BATCH, or the ceilings are inconsistent: check
+            that SEAGULL_EDGE_MAX_BODY and SEAGULL_EDGE_AGENT_MAX_BODY in Caddy
+            are not more permissive than SEAGULL_MAX_REQUEST_BODY_BYTES and
+            SEAGULL_INGEST_MAX_REQUEST_BODY_BYTES in the backend.
+      - alert: IngestEventFieldsNormalized
+        expr: sum by (field) (rate(ingest_event_fields_normalized_total[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          subsystem: ingest
+        annotations:
+          summary: The ingest worker keeps repairing the {{ $labels.field }} field
+          description: >-
+            The API validates every event against the hot store columns before
+            it answers durable, so events reaching the worker should already
+            fit. A sustained repair rate means something is enqueuing events
+            that did not pass that check: a batch queued before the contract was
+            enforced, a redrive of an old dead letter batch, or a producer that
+            bypasses POST /ingest/events. The events are stored with the field
+            truncated or dropped, never rejected, so this is data fidelity loss
+            rather than data loss. Find the producer before the repaired field
+            reaches detections.
