@@ -308,6 +308,7 @@ class Settings:
     SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS", 900)
     SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS", 2592000)
     SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE", 2)
+    SEAGULL_AGENT_LAST_SEEN_THROTTLE_SECONDS: int = _env_int("SEAGULL_AGENT_LAST_SEEN_THROTTLE_SECONDS", 60)
 
     SEAGULL_AGENT_PUBLIC_HOST: str = _agent_public_host_from_env()
     SEAGULL_AGENT_MTLS_PORT: int = _env_int("SEAGULL_AGENT_MTLS_PORT", 8444)
@@ -830,6 +831,8 @@ class Settings:
             errors.append("SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS must be >= 3600")
         if (self.SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE or 0) < 1:
             errors.append("SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE must be >= 1")
+        if (self.SEAGULL_AGENT_LAST_SEEN_THROTTLE_SECONDS or 0) < 0:
+            errors.append("SEAGULL_AGENT_LAST_SEEN_THROTTLE_SECONDS must be >= 0")
         if svc == "backend-api":
             if self.SEAGULL_AGENT_PUBLIC_HOST.strip() and not _valid_agent_public_host(self.SEAGULL_AGENT_PUBLIC_HOST):
                 errors.append("SEAGULL_AGENT_PUBLIC_HOST must be a DNS name or IP address without a port")
