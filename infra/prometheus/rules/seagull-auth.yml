@@ -1,0 +1,52 @@
+groups:
+  - name: seagull-auth
+    rules:
+      - alert: RefreshTokenReuseDetected
+        expr: sum(rate(auth_refresh_rotation_total{outcome="reuse_detected"}[5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          subsystem: auth
+        annotations:
+          summary: A rotated refresh token was presented again
+          description: >-
+            Someone presented a refresh token that had already been rotated into
+            a successor. Every rotation is single-use, so the legitimate client
+            never holds that token again: either a token leaked and both the
+            holder and the owner are using it, or a client is replaying a cookie
+            it should have discarded. The whole session family was revoked and
+            the user has to sign in again. Find the account in the audit trail
+            under action auth.refresh with outcome failure, and check whether
+            the requests came from the same address. This fires on a single
+            occurrence because one reuse is already the signal.
+      - alert: RefreshRotationsRacing
+        expr: sum(rate(auth_refresh_rotation_total{outcome="lost_race"}[5m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          subsystem: auth
+        annotations:
+          summary: Refresh rotations keep losing the single-use claim
+          description: >-
+            Two requests are rotating the same refresh token at the same time.
+            The loser is refused with 401 and mints nothing, so no session is
+            duplicated, but the client behind it gets signed out for no reason.
+            A steady rate means a caller is not serialising its refreshes: the
+            portal coalesces them per tab, so this usually points at several
+            tabs restoring at once, or at an integration that fires parallel
+            requests with a shared cookie jar.
+      - alert: OneTimeTokenLoginsRacing
+        expr: sum(rate(auth_one_time_token_login_total{outcome="lost_race"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: auth
+        annotations:
+          summary: One-time tokens are being redeemed more than once
+          description: >-
+            A one-time token was submitted twice close enough together that both
+            requests read it as unused. Only one login was admitted and the
+            other got 401, so the token stayed single-use. A double-submitting
+            form is the ordinary cause; a sustained rate on distinct tokens is
+            not, and means someone is replaying handed-out tokens. Cross-check
+            the used_ip recorded on the tokens against where they were issued.
