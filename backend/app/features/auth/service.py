@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor
 from app.core.config import settings
+from app.core.observability.metrics import incr_counter
 from app.core.security import (
     make_access_token,
     new_csrf_token,
@@ -206,7 +207,8 @@ def login(db: Session, *, body: LoginIn, request: Request, response: Response) -
     return payload
 
 
-def _reject_refresh(db: Session, *, request: Request, detail: str) -> NoReturn:
+def _reject_refresh(db: Session, *, request: Request, detail: str, outcome: str) -> NoReturn:
+    incr_counter("auth_refresh_rotation_total", outcome=outcome)
     _audit_refresh_event(db, request=request, succeeded=False, user_id=None, username=None, reason=detail, error="http_401")
     repository.commit(db)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
@@ -216,7 +218,7 @@ def refresh(db: Session, *, request: Request, response: Response) -> dict:
     verify_refresh_csrf(request)
     raw_refresh = (request.cookies.get(REFRESH_COOKIE_NAME) or "").strip()
     if not raw_refresh:
-        _reject_refresh(db, request=request, detail="Missing refresh token")
+        _reject_refresh(db, request=request, detail="Missing refresh token", outcome="missing")
 
     now = datetime.utcnow()
     ip, ua = _client_meta(request)
@@ -224,19 +226,19 @@ def refresh(db: Session, *, request: Request, response: Response) -> dict:
 
     if current and current.revoked_at is not None and current.replaced_by_id:
         repository.revoke_refresh_family(db, family_id=current.family_id, revoked_at=now)
-        _reject_refresh(db, request=request, detail="Session revoked")
+        _reject_refresh(db, request=request, detail="Session revoked", outcome="reuse_detected")
 
     if not current or current.revoked_at is not None:
-        _reject_refresh(db, request=request, detail="Invalid refresh token")
+        _reject_refresh(db, request=request, detail="Invalid refresh token", outcome="invalid")
 
     if current.expires_at <= now:
         repository.revoke_refresh_session(db, session_id=current.id, revoked_at=now)
-        _reject_refresh(db, request=request, detail="Refresh token expired")
+        _reject_refresh(db, request=request, detail="Refresh token expired", outcome="expired")
 
     user = repository.get_user_by_id(db, current.user_id)
     if not user or not user.is_active:
         repository.revoke_refresh_session(db, session_id=current.id, revoked_at=now)
-        _reject_refresh(db, request=request, detail="Unauthorized")
+        _reject_refresh(db, request=request, detail="Unauthorized", outcome="unauthorized")
 
     successor_id = str(uuid.uuid4())
     rotated = repository.revoke_refresh_session(
@@ -248,7 +250,7 @@ def refresh(db: Session, *, request: Request, response: Response) -> dict:
         last_user_agent=ua,
     )
     if not rotated:
-        _reject_refresh(db, request=request, detail="Invalid refresh token")
+        _reject_refresh(db, request=request, detail="Invalid refresh token", outcome="lost_race")
 
     _create_refresh_session(
         db,
@@ -260,6 +262,7 @@ def refresh(db: Session, *, request: Request, response: Response) -> dict:
     )
     _audit_refresh_event(db, request=request, succeeded=True, user_id=user.id, username=user.username)
     payload = _make_token_payload(user=user)
+    incr_counter("auth_refresh_rotation_total", outcome="rotated")
     repository.commit(db)
     return payload
 
@@ -323,7 +326,15 @@ def auth_features() -> dict:
     return {"otp_enabled": bool(settings.SEAGULL_AUTH_OTP_ENABLED)}
 
 
-def _reject_otp_login(db: Session, *, request: Request, user_id: int | None, username: str | None) -> NoReturn:
+def _reject_otp_login(
+    db: Session,
+    *,
+    request: Request,
+    user_id: int | None,
+    username: str | None,
+    outcome: str,
+) -> NoReturn:
+    incr_counter("auth_one_time_token_login_total", outcome=outcome)
     _audit_login_event(
         db,
         request=request,
@@ -349,7 +360,7 @@ def otp_login(db: Session, *, body: OtpLoginIn, request: Request, response: Resp
     now = datetime.utcnow()
     row = repository.get_one_time_token_by_hash(db, token_hash(raw))
     if not row or row.revoked_at is not None or row.used_at is not None or row.expires_at <= now:
-        _reject_otp_login(db, request=request, user_id=None, username=None)
+        _reject_otp_login(db, request=request, user_id=None, username=None, outcome="invalid")
 
     user = repository.get_user_by_id(db, row.user_id)
     if not user or not user.is_active:
@@ -358,6 +369,7 @@ def otp_login(db: Session, *, body: OtpLoginIn, request: Request, response: Resp
             request=request,
             user_id=(user.id if user else None),
             username=(user.username if user else None),
+            outcome="unauthorized",
         )
 
     ip, ua = _client_meta(request)
@@ -369,13 +381,14 @@ def otp_login(db: Session, *, body: OtpLoginIn, request: Request, response: Resp
         used_user_agent=ua,
     )
     if not consumed:
-        _reject_otp_login(db, request=request, user_id=user.id, username=user.username)
+        _reject_otp_login(db, request=request, user_id=user.id, username=user.username, outcome="lost_race")
 
     user.last_login_at = now
     repository.save_user(db, user)
     _audit_login_event(db, request=request, method="otp", succeeded=True, user_id=user.id, username=user.username)
     _create_refresh_session(db, user_id=user.id, request=request, response=response)
     payload = _make_token_payload(user=user)
+    incr_counter("auth_one_time_token_login_total", outcome="consumed")
     repository.commit(db)
     return payload
 
