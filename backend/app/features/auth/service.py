@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
+from typing import NoReturn
 
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
@@ -35,6 +36,16 @@ def _client_meta(request: Request) -> tuple[str, str]:
     ip = (request.client.host if request.client else "") or "unknown"
     ua = (request.headers.get("user-agent") or "")[:256]
     return ip, ua
+
+
+def _commit_quietly(db: Session) -> None:
+    try:
+        repository.commit(db)
+    except Exception:
+        try:
+            repository.rollback(db)
+        except Exception:
+            pass
 
 
 def _make_token_payload(*, user: PortalUserModel) -> dict:
@@ -160,13 +171,7 @@ def login(db: Session, *, body: LoginIn, request: Request, response: Response) -
             username=username,
             reason="invalid_credentials",
         )
-        try:
-            repository.commit(db)
-        except Exception:
-            try:
-                repository.rollback(db)
-            except Exception:
-                pass
+        _commit_quietly(db)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     verified, upgraded_hash = verify_and_upgrade_password(body.password, user.password_hash)
@@ -185,13 +190,7 @@ def login(db: Session, *, body: LoginIn, request: Request, response: Response) -
             username=username,
             reason="invalid_credentials",
         )
-        try:
-            repository.commit(db)
-        except Exception:
-            try:
-                repository.rollback(db)
-            except Exception:
-                pass
+        _commit_quietly(db)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if upgraded_hash:
@@ -279,13 +278,7 @@ def logout(db: Session, *, request: Request, response: Response, user: PortalPri
         )
     except Exception:
         pass
-    try:
-        repository.commit(db)
-    except Exception:
-        try:
-            repository.rollback(db)
-        except Exception:
-            pass
+    _commit_quietly(db)
 
 
 def logout_all(db: Session, *, request: Request, response: Response, user: PortalPrincipal) -> None:
@@ -311,13 +304,7 @@ def logout_all(db: Session, *, request: Request, response: Response, user: Porta
         )
     except Exception:
         pass
-    try:
-        repository.commit(db)
-    except Exception:
-        try:
-            repository.rollback(db)
-        except Exception:
-            pass
+    _commit_quietly(db)
 
 
 def me(*, user: PortalPrincipal) -> dict:
@@ -326,6 +313,20 @@ def me(*, user: PortalPrincipal) -> dict:
 
 def auth_features() -> dict:
     return {"otp_enabled": bool(settings.SEAGULL_AUTH_OTP_ENABLED)}
+
+
+def _reject_otp_login(db: Session, *, request: Request, user_id: int | None, username: str | None) -> NoReturn:
+    _audit_login_event(
+        db,
+        request=request,
+        method="otp",
+        succeeded=False,
+        user_id=user_id,
+        username=username,
+        reason="invalid_token",
+    )
+    _commit_quietly(db)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
 def otp_login(db: Session, *, body: OtpLoginIn, request: Request, response: Response) -> dict:
@@ -340,43 +341,16 @@ def otp_login(db: Session, *, body: OtpLoginIn, request: Request, response: Resp
     now = datetime.utcnow()
     row = repository.get_one_time_token_by_hash(db, token_hash(raw))
     if not row or row.revoked_at is not None or row.used_at is not None or row.expires_at <= now:
-        _audit_login_event(
-            db,
-            request=request,
-            method="otp",
-            succeeded=False,
-            user_id=None,
-            username=None,
-            reason="invalid_token",
-        )
-        try:
-            repository.commit(db)
-        except Exception:
-            try:
-                repository.rollback(db)
-            except Exception:
-                pass
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        _reject_otp_login(db, request=request, user_id=None, username=None)
 
     user = repository.get_user_by_id(db, row.user_id)
     if not user or not user.is_active:
-        _audit_login_event(
+        _reject_otp_login(
             db,
             request=request,
-            method="otp",
-            succeeded=False,
             user_id=(user.id if user else None),
             username=(user.username if user else None),
-            reason="invalid_token",
         )
-        try:
-            repository.commit(db)
-        except Exception:
-            try:
-                repository.rollback(db)
-            except Exception:
-                pass
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     ip, ua = _client_meta(request)
     repository.mark_one_time_token_used(db, token_row=row, used_at=now, used_ip=ip, used_user_agent=ua)
