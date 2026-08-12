@@ -94,6 +94,10 @@ def list_active_credentials(db: Session, agent_id: str) -> list[AgentCredentialM
     )
 
 
+def get_credential_by_id(db: Session, credential_id: int) -> AgentCredentialModel | None:
+    return db.get(AgentCredentialModel, int(credential_id))
+
+
 def save_credential(db: Session, row: AgentCredentialModel) -> AgentCredentialModel:
     db.add(row)
     return row
