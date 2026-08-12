@@ -85,6 +85,11 @@ _SPECS: Tuple[MetricSpec, ...] = (
           "Dashboard snapshot worker full cycle duration in seconds.",
           buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0)),
 
+    _spec("auth_refresh_rotation_total", "counter",
+          "Portal refresh token rotations by outcome.", ("outcome",)),
+    _spec("auth_one_time_token_login_total", "counter",
+          "Portal one-time token logins by outcome.", ("outcome",)),
+
     _spec("agent_auth_requests_total", "counter", "Agent authentication attempts.",
           ("outcome", "reason", "method")),
     _spec("agent_bootstrap_token_consumed_total", "counter", "Agent bootstrap tokens consumed.",
