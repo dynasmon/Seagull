@@ -20,7 +20,7 @@ from app.core.security import (
 from app.core.security.identity import canonicalize_username
 from app.core.security.rate_limit import guard_login_rate_limit, guard_otp_rate_limit
 from app.features.auth import repository
-from app.features.auth.models import PortalRefreshSessionModel, PortalUserModel
+from app.features.auth.models import PortalUserModel
 from app.features.auth.schemas import LoginIn, OtpCreateIn, OtpLoginIn
 from app.features.auth.session import (
     REFRESH_COOKIE_NAME,
@@ -68,14 +68,16 @@ def _create_refresh_session(
     user_id: int,
     request: Request,
     response: Response,
+    session_id: str | None = None,
     family_id: str | None = None,
-) -> PortalRefreshSessionModel:
+) -> None:
     now = datetime.utcnow()
     ip, ua = _client_meta(request)
     raw_refresh = new_refresh_token()
     csrf = new_csrf_token()
-    refresh_row = repository.create_refresh_session(
+    repository.create_refresh_session(
         db,
+        session_id=(session_id or str(uuid.uuid4())),
         user_id=user_id,
         token_hash_value=token_hash(raw_refresh),
         created_at=now,
@@ -86,7 +88,6 @@ def _create_refresh_session(
     )
     _set_refresh_cookie(response, raw_refresh, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
     _set_csrf_cookie(response, csrf, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
-    return refresh_row
 
 
 def _audit_login_event(
@@ -205,13 +206,17 @@ def login(db: Session, *, body: LoginIn, request: Request, response: Response) -
     return payload
 
 
+def _reject_refresh(db: Session, *, request: Request, detail: str) -> NoReturn:
+    _audit_refresh_event(db, request=request, succeeded=False, user_id=None, username=None, reason=detail, error="http_401")
+    repository.commit(db)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+
 def refresh(db: Session, *, request: Request, response: Response) -> dict:
     verify_refresh_csrf(request)
     raw_refresh = (request.cookies.get(REFRESH_COOKIE_NAME) or "").strip()
     if not raw_refresh:
-        _audit_refresh_event(db, request=request, succeeded=False, user_id=None, username=None, reason="Missing refresh token", error="http_401")
-        repository.commit(db)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
+        _reject_refresh(db, request=request, detail="Missing refresh token")
 
     now = datetime.utcnow()
     ip, ua = _client_meta(request)
@@ -219,36 +224,39 @@ def refresh(db: Session, *, request: Request, response: Response) -> dict:
 
     if current and current.revoked_at is not None and current.replaced_by_id:
         repository.revoke_refresh_family(db, family_id=current.family_id, revoked_at=now)
-        _audit_refresh_event(db, request=request, succeeded=False, user_id=None, username=None, reason="Session revoked", error="http_401")
-        repository.commit(db)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked")
+        _reject_refresh(db, request=request, detail="Session revoked")
 
     if not current or current.revoked_at is not None:
-        _audit_refresh_event(db, request=request, succeeded=False, user_id=None, username=None, reason="Invalid refresh token", error="http_401")
-        repository.commit(db)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        _reject_refresh(db, request=request, detail="Invalid refresh token")
 
     if current.expires_at <= now:
-        repository.revoke_refresh_session(db, session_row=current, revoked_at=now)
-        _audit_refresh_event(db, request=request, succeeded=False, user_id=None, username=None, reason="Refresh token expired", error="http_401")
-        repository.commit(db)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+        repository.revoke_refresh_session(db, session_id=current.id, revoked_at=now)
+        _reject_refresh(db, request=request, detail="Refresh token expired")
 
     user = repository.get_user_by_id(db, current.user_id)
     if not user or not user.is_active:
-        repository.revoke_refresh_session(db, session_row=current, revoked_at=now)
-        _audit_refresh_event(db, request=request, succeeded=False, user_id=None, username=None, reason="Unauthorized", error="http_401")
-        repository.commit(db)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        repository.revoke_refresh_session(db, session_id=current.id, revoked_at=now)
+        _reject_refresh(db, request=request, detail="Unauthorized")
 
-    new_session = _create_refresh_session(db, user_id=user.id, request=request, response=response, family_id=current.family_id)
-    repository.revoke_refresh_session(
+    successor_id = str(uuid.uuid4())
+    rotated = repository.revoke_refresh_session(
         db,
-        session_row=current,
+        session_id=current.id,
         revoked_at=now,
-        replaced_by_id=new_session.id,
+        replaced_by_id=successor_id,
         last_ip=ip,
         last_user_agent=ua,
+    )
+    if not rotated:
+        _reject_refresh(db, request=request, detail="Invalid refresh token")
+
+    _create_refresh_session(
+        db,
+        user_id=user.id,
+        request=request,
+        response=response,
+        session_id=successor_id,
+        family_id=current.family_id,
     )
     _audit_refresh_event(db, request=request, succeeded=True, user_id=user.id, username=user.username)
     payload = _make_token_payload(user=user)
@@ -260,8 +268,8 @@ def logout(db: Session, *, request: Request, response: Response, user: PortalPri
     raw_refresh = (request.cookies.get(REFRESH_COOKIE_NAME) or "").strip()
     if raw_refresh:
         current = repository.get_refresh_session_by_token_hash(db, token_hash(raw_refresh))
-        if current and current.revoked_at is None:
-            repository.revoke_refresh_session(db, session_row=current, revoked_at=datetime.utcnow())
+        if current:
+            repository.revoke_refresh_session(db, session_id=current.id, revoked_at=datetime.utcnow())
 
     _clear_auth_cookies(response)
     try:
@@ -353,7 +361,16 @@ def otp_login(db: Session, *, body: OtpLoginIn, request: Request, response: Resp
         )
 
     ip, ua = _client_meta(request)
-    repository.mark_one_time_token_used(db, token_row=row, used_at=now, used_ip=ip, used_user_agent=ua)
+    consumed = repository.consume_one_time_token(
+        db,
+        token_id=row.id,
+        used_at=now,
+        used_ip=ip,
+        used_user_agent=ua,
+    )
+    if not consumed:
+        _reject_otp_login(db, request=request, user_id=user.id, username=user.username)
+
     user.last_login_at = now
     repository.save_user(db, user)
     _audit_login_event(db, request=request, method="otp", succeeded=True, user_id=user.id, username=user.username)
