@@ -273,6 +273,7 @@ The portal targets Node 20+ and npm 10+; the backend runs Python 3.12.
 | [detections/backtesting.md](docs/detections/backtesting.md) | Detection validation. |
 | [detections/sigma_import.md](docs/detections/sigma_import.md) | Sigma import and review. |
 | [auth/sessions.md](docs/auth/sessions.md) | Refresh rotation, one-time tokens and reuse detection. |
+| [agents/authentication.md](docs/agents/authentication.md) | Agent credential validity and the last-seen throttle. |
 | [ingest/admission.md](docs/ingest/admission.md) | Event contract, body ceilings and dead letter operations. |
 | [workers/architecture.md](docs/workers/architecture.md) | Worker group manager behavior. |
 | [workers/analytical_sinks.md](docs/workers/analytical_sinks.md) | Outbox delivery to ClickHouse and Elasticsearch. |
