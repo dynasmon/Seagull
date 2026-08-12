@@ -163,13 +163,9 @@ def get_current_agent(request: Request) -> AgentPrincipal:
         if matched.expires_at <= now:
             incr_counter("agent_auth_requests_total", outcome="failure", reason="expired")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent credential expired")
-        if int(matched.used_uses or 0) >= int(matched.max_uses or 1):
-            incr_counter("agent_auth_requests_total", outcome="failure", reason="exhausted")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent credential exhausted")
 
         _enforce_cert_identity(request, agent_id)
 
-        matched.used_uses = int(matched.used_uses or 0) + 1
         matched.last_used_at = now
         agent.last_seen_at = now
 
