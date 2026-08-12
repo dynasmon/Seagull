@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import Request
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.audit import AuditActor, write_audit_event
@@ -59,19 +60,26 @@ def create_one_time_token(
     return row
 
 
-def mark_one_time_token_used(
+def consume_one_time_token(
     db: Session,
     *,
-    token_row: PortalOneTimeTokenModel,
+    token_id: str,
     used_at: datetime,
     used_ip: str,
     used_user_agent: str,
-) -> PortalOneTimeTokenModel:
-    token_row.used_at = used_at
-    token_row.used_ip = used_ip
-    token_row.used_user_agent = used_user_agent
-    db.add(token_row)
-    return token_row
+) -> bool:
+    consumed = db.execute(
+        update(PortalOneTimeTokenModel)
+        .where(
+            PortalOneTimeTokenModel.id == str(token_id),
+            PortalOneTimeTokenModel.used_at.is_(None),
+            PortalOneTimeTokenModel.revoked_at.is_(None),
+        )
+        .values(used_at=used_at, used_ip=used_ip, used_user_agent=used_user_agent)
+        .returning(PortalOneTimeTokenModel.id),
+        execution_options={"synchronize_session": False},
+    ).scalar_one_or_none()
+    return consumed is not None
 
 
 def create_login_event(
@@ -106,6 +114,7 @@ def get_refresh_session_by_token_hash(db: Session, token_hash_value: str) -> Por
 def create_refresh_session(
     db: Session,
     *,
+    session_id: str,
     user_id: int,
     token_hash_value: str,
     created_at: datetime,
@@ -115,7 +124,7 @@ def create_refresh_session(
     last_user_agent: str | None,
 ) -> PortalRefreshSessionModel:
     row = PortalRefreshSessionModel(
-        id=str(uuid.uuid4()),
+        id=str(session_id),
         family_id=family_id,
         user_id=int(user_id),
         token_hash=token_hash_value,
@@ -133,26 +142,37 @@ def create_refresh_session(
 def revoke_refresh_session(
     db: Session,
     *,
-    session_row: PortalRefreshSessionModel,
+    session_id: str,
     revoked_at: datetime,
     replaced_by_id: str | None = None,
     last_ip: str | None = None,
     last_user_agent: str | None = None,
-) -> PortalRefreshSessionModel:
-    session_row.revoked_at = revoked_at
-    session_row.replaced_by_id = replaced_by_id
+) -> bool:
+    values: dict[str, object] = {"revoked_at": revoked_at, "replaced_by_id": replaced_by_id}
     if last_ip is not None:
-        session_row.last_ip = last_ip
+        values["last_ip"] = last_ip
     if last_user_agent is not None:
-        session_row.last_user_agent = last_user_agent
-    db.add(session_row)
-    return session_row
+        values["last_user_agent"] = last_user_agent
+    revoked = db.execute(
+        update(PortalRefreshSessionModel)
+        .where(
+            PortalRefreshSessionModel.id == str(session_id),
+            PortalRefreshSessionModel.revoked_at.is_(None),
+        )
+        .values(**values)
+        .returning(PortalRefreshSessionModel.id),
+        execution_options={"synchronize_session": False},
+    ).scalar_one_or_none()
+    return revoked is not None
 
 
 def revoke_refresh_family(db: Session, *, family_id: str, revoked_at: datetime) -> int:
     return (
         db.query(PortalRefreshSessionModel)
-        .filter(PortalRefreshSessionModel.family_id == family_id)
+        .filter(
+            PortalRefreshSessionModel.family_id == family_id,
+            PortalRefreshSessionModel.revoked_at.is_(None),
+        )
         .update({"revoked_at": revoked_at})
     )
 
