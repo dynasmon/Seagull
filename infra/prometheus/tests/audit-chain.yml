@@ -1,0 +1,123 @@
+rule_files:
+  - ../rules/seagull-audit.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: a verified chain raises nothing
+    input_series:
+      - series: 'audit_chain_verified_events'
+        values: "1200x60"
+      - series: 'audit_chain_length'
+        values: "1200x60"
+      - series: 'audit_chain_broken_links{reason="event_hash_mismatch"}'
+        values: "0x60"
+      - series: 'audit_chain_broken_links{reason="prev_hash_mismatch"}'
+        values: "0x60"
+      - series: 'audit_chain_verification_total{outcome="intact"}'
+        values: "0+1x60"
+      - series: 'audit_chain_verification_total{outcome="error"}'
+        values: "0+0x60"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: AuditChainBroken
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: AuditChainVerifierSilent
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: AuditChainVerifyFailing
+        exp_alerts: []
+
+  - interval: 1m
+    name: an edited event opens the broken alert on the first pass
+    input_series:
+      - series: 'audit_chain_verified_events'
+        values: "1200x60"
+      - series: 'audit_chain_broken_links{reason="event_hash_mismatch"}'
+        values: "0x9 1x60"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: AuditChainBroken
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: AuditChainBroken
+        exp_alerts: &broken_alert
+          - exp_labels:
+              severity: critical
+              subsystem: audit
+            exp_annotations:
+              summary: The audit chain no longer verifies
+              description: >-
+                Every admin action and login is linked to the one before it, and the
+                verifier just recomputed a link that does not match what is stored. The
+                reason label says which kind: event_hash_mismatch means a stored row was
+                edited after it was written, prev_hash_mismatch means a row was removed
+                or repointed, seq_gap means a numbered event is missing, and
+                missing_predecessor means a pruned range lost the checkpoint that
+                anchored it. Only the last one has an innocent cause. Do not clear this
+                by rebuilding the chain: read audit_chain_broken in the verifier log,
+                which names the sequence numbers and event ids involved.
+
+  - interval: 1m
+    name: a pruned range that lost its checkpoint opens the same alert
+    input_series:
+      - series: 'audit_chain_verified_events'
+        values: "1200x60"
+      - series: 'audit_chain_broken_links{reason="missing_predecessor"}'
+        values: "1x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AuditChainBroken
+        exp_alerts: *broken_alert
+
+  - interval: 1m
+    name: a verifier that stops reporting opens the silence alert
+    input_series:
+      - series: 'audit_chain_verified_events'
+        values: "1200x9 _x60"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AuditChainVerifierSilent
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: AuditChainVerifierSilent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: audit
+            exp_annotations:
+              summary: Nothing is verifying the audit chain
+              description: >-
+                The audit verifier has not reported for half an hour, so a broken link
+                would not be noticed. Either the maintenance worker group is down,
+                SEAGULL_AUDIT_VERIFY_ENABLED was turned off, or the pass is failing
+                before it publishes. Tamper evidence that nobody checks is the state
+                this alert exists to prevent.
+
+  - interval: 1m
+    name: passes that keep raising open the failure alert
+    input_series:
+      - series: 'audit_chain_verified_events'
+        values: "1200x60"
+      - series: 'audit_chain_verification_total{outcome="error"}'
+        values: "0+1x60"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AuditChainVerifyFailing
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: AuditChainVerifyFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: audit
+            exp_annotations:
+              summary: The audit chain verifier keeps erroring out
+              description: >-
+                Verification passes are raising instead of reporting a verdict, so the
+                chain is unchecked even though the worker is alive. This is usually the
+                database being unreachable or the audit tables being unreadable by the
+                worker role. Check audit_verifier_loop_error in the worker log for the
+                exception.
