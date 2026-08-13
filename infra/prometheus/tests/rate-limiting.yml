@@ -1,0 +1,105 @@
+rule_files:
+  - ../rules/seagull-auth.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: a healthy limiter on the shared window raises nothing
+    input_series:
+      - series: 'rate_limit_decisions_total{scope="login",backend="redis",outcome="allowed"}'
+        values: "0+30x60"
+      - series: 'rate_limit_decisions_total{scope="login",backend="redis",outcome="limited"}'
+        values: "0+0x60"
+      - series: 'rate_limit_decisions_total{scope="agent-enroll",backend="redis",outcome="allowed"}'
+        values: "0+5x60"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: RateLimiterWindowDegraded
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LoginRateLimitSustained
+        exp_alerts: []
+
+  - interval: 1m
+    name: falling back to per-process windows opens the degraded alert
+    input_series:
+      - series: 'rate_limit_decisions_total{scope="login",backend="local",outcome="allowed"}'
+        values: "0+12x60"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RateLimiterWindowDegraded
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: RateLimiterWindowDegraded
+        exp_alerts: &degraded_alert
+          - exp_labels:
+              severity: warning
+              subsystem: auth
+            exp_annotations:
+              summary: Rate limiting is no longer using the shared window
+              description: >-
+                Redis holds the window every API process counts into, and it has
+                stopped answering, so the limiter fell back to whatever
+                SEAGULL_RATE_LIMIT_DEGRADED_POLICY says. Under the local policy each
+                process now enforces its own copy of every limit, which is why
+                SEAGULL_RATE_LIMIT_LOCAL_PROCESSES has to match the process count;
+                under deny the protected endpoints are refusing everyone. Look at the
+                backend label to tell those apart, then fix Redis — nothing here
+                recovers on its own beyond the retry cooldown.
+
+  - interval: 1m
+    name: the deny policy also opens the degraded alert
+    input_series:
+      - series: 'rate_limit_decisions_total{scope="login",backend="denied",outcome="limited"}'
+        values: "0+8x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RateLimiterWindowDegraded
+        exp_alerts: *degraded_alert
+
+  - interval: 1m
+    name: an occasional refused login stays below the sustained threshold
+    input_series:
+      - series: 'rate_limit_decisions_total{scope="login",backend="redis",outcome="limited"}'
+        values: "0+1x60"
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: LoginRateLimitSustained
+        exp_alerts: []
+
+  - interval: 1m
+    name: a stuffing run against the portal opens the login alert
+    input_series:
+      - series: 'rate_limit_decisions_total{scope="login",backend="redis",outcome="limited"}'
+        values: "0+30x60"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: LoginRateLimitSustained
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: LoginRateLimitSustained
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              subsystem: auth
+            exp_annotations:
+              summary: Logins are being refused by the rate limiter
+              description: >-
+                The login limiter has been turning requests away for ten minutes. The
+                per-address budget is 25 attempts in five minutes and the per-account
+                budget is 12, so a single person mistyping a password never reaches
+                this. Sustained refusals mean either credential stuffing against the
+                portal or a client retrying a failed login in a loop. Check the audit
+                trail for action auth.login with outcome failure and see whether the
+                attempts share an address.
+
+  - interval: 1m
+    name: agent enrollment refusals do not open the login alert
+    input_series:
+      - series: 'rate_limit_decisions_total{scope="agent-enroll",backend="redis",outcome="limited"}'
+        values: "0+30x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: LoginRateLimitSustained
+        exp_alerts: []

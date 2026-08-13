@@ -35,6 +35,39 @@ groups:
             portal coalesces them per tab, so this usually points at several
             tabs restoring at once, or at an integration that fires parallel
             requests with a shared cookie jar.
+      - alert: RateLimiterWindowDegraded
+        expr: sum(rate(rate_limit_decisions_total{backend!="redis"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: auth
+        annotations:
+          summary: Rate limiting is no longer using the shared window
+          description: >-
+            Redis holds the window every API process counts into, and it has
+            stopped answering, so the limiter fell back to whatever
+            SEAGULL_RATE_LIMIT_DEGRADED_POLICY says. Under the local policy each
+            process now enforces its own copy of every limit, which is why
+            SEAGULL_RATE_LIMIT_LOCAL_PROCESSES has to match the process count;
+            under deny the protected endpoints are refusing everyone. Look at
+            the backend label to tell those apart, then fix Redis — nothing here
+            recovers on its own beyond the retry cooldown.
+      - alert: LoginRateLimitSustained
+        expr: sum(rate(rate_limit_decisions_total{scope="login",outcome="limited"}[5m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: auth
+        annotations:
+          summary: Logins are being refused by the rate limiter
+          description: >-
+            The login limiter has been turning requests away for ten minutes.
+            The per-address budget is 25 attempts in five minutes and the
+            per-account budget is 12, so a single person mistyping a password
+            never reaches this. Sustained refusals mean either credential
+            stuffing against the portal or a client retrying a failed login in a
+            loop. Check the audit trail for action auth.login with outcome
+            failure and see whether the attempts share an address.
       - alert: OneTimeTokenLoginsRacing
         expr: sum(rate(auth_one_time_token_login_total{outcome="lost_race"}[5m])) > 0
         for: 10m
