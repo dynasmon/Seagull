@@ -43,6 +43,13 @@ def get_redis(*, decode_responses: bool = True) -> Optional[redis.Redis]:
         return None
 
 
+def mark_redis_unavailable() -> None:
+
+    global _redis, _redis_unavailable_until
+    _redis = None
+    _redis_unavailable_until = time.monotonic() + _REDIS_RETRY_COOLDOWN_SECONDS
+
+
 def get_blocking_redis(*, decode_responses: bool = True) -> Optional[redis.Redis]:
 
     global _blocking_redis, _redis_unavailable_until
