@@ -233,6 +233,17 @@ def _consume_enrollment_token(db: Session, token: AgentBootstrapTokenModel) -> N
     incr_counter("agent_bootstrap_token_consumed_total", token_type=str(token.token_type or "enrollment"))
 
 
+def _spend_credential_redemption(db: Session, *, credential_id: int | None, redeemed_at: datetime) -> None:
+    if credential_id is None:
+        return
+    row = repository.get_credential_by_id(db, int(credential_id))
+    if row is None:
+        return
+    row.used_uses = int(row.used_uses or 0) + 1
+    row.last_used_at = redeemed_at
+    repository.save_credential(db, row)
+
+
 def _revoke_active_credentials(
     db: Session,
     agent_id: str,
@@ -791,6 +802,7 @@ def rotate_credential(db: Session, *, agent: AgentPrincipal) -> AgentCredentialO
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
 
     rotated_at = datetime.utcnow()
+    _spend_credential_redemption(db, credential_id=agent.credential_id, redeemed_at=rotated_at)
     _revoke_active_credentials(
         db,
         agent.agent_id,
