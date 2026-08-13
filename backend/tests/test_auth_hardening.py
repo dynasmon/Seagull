@@ -182,12 +182,12 @@ def test_login_invalid_credentials(db_factory):
 def test_rate_limit_redis_unavailable_uses_local_fallback(monkeypatch: pytest.MonkeyPatch):
     from app.core.security import rate_limit as rl
 
-    rl._local_state.clear()
-    monkeypatch.setattr("app.core.security.rate_limit._get_redis", lambda: None)
+    rl._local_windows.clear()
+    monkeypatch.setattr("app.core.security.rate_limit.get_redis", lambda: None)
     allowed = 0
     blocked = 0
     for _ in range(5):
-        result = rl.rate_limit("rl:test:login:127.0.0.1", limit=3, window_seconds=60)
+        result = rl.rate_limit("login", "ip", "127.0.0.1", limit=3, window_seconds=60)
         if result.allowed:
             allowed += 1
         else:
