@@ -89,6 +89,9 @@ _SPECS: Tuple[MetricSpec, ...] = (
           "Portal refresh token rotations by outcome.", ("outcome",)),
     _spec("auth_one_time_token_login_total", "counter",
           "Portal one-time token logins by outcome.", ("outcome",)),
+    _spec("rate_limit_decisions_total", "counter",
+          "Rate limit decisions by protected scope, window backend and outcome.",
+          ("scope", "backend", "outcome")),
 
     _spec("agent_auth_requests_total", "counter", "Agent authentication attempts.",
           ("outcome", "reason", "method")),
