@@ -236,6 +236,10 @@ class Settings:
     )
     SEAGULL_AUDIT_RETENTION_EVERY_SECONDS: int = _env_int("SEAGULL_AUDIT_RETENTION_EVERY_SECONDS", 3600)
     SEAGULL_AUDIT_RETENTION_DELETE_BATCH: int = _env_int("SEAGULL_AUDIT_RETENTION_DELETE_BATCH", 5000)
+    SEAGULL_AUDIT_VERIFY_ENABLED: bool = _env_bool("SEAGULL_AUDIT_VERIFY_ENABLED", True)
+    SEAGULL_AUDIT_VERIFY_EVERY_SECONDS: int = _env_int("SEAGULL_AUDIT_VERIFY_EVERY_SECONDS", 900)
+    SEAGULL_AUDIT_VERIFY_BATCH: int = _env_int("SEAGULL_AUDIT_VERIFY_BATCH", 2000)
+    SEAGULL_AUDIT_VERIFY_REPORTED_BREAKS: int = _env_int("SEAGULL_AUDIT_VERIFY_REPORTED_BREAKS", 20)
     SEAGULL_ROLLUP_1S_RETENTION_DAYS: int = _env_int("SEAGULL_ROLLUP_1S_RETENTION_DAYS", 5)
 
     # Search backend selection:
@@ -767,6 +771,12 @@ class Settings:
             errors.append("SEAGULL_AUDIT_RETENTION_EVERY_SECONDS must be >= 30")
         if (self.SEAGULL_AUDIT_RETENTION_DELETE_BATCH or 0) < 100:
             errors.append("SEAGULL_AUDIT_RETENTION_DELETE_BATCH must be >= 100")
+        if (self.SEAGULL_AUDIT_VERIFY_EVERY_SECONDS or 0) < 30:
+            errors.append("SEAGULL_AUDIT_VERIFY_EVERY_SECONDS must be >= 30")
+        if (self.SEAGULL_AUDIT_VERIFY_BATCH or 0) < 100:
+            errors.append("SEAGULL_AUDIT_VERIFY_BATCH must be >= 100")
+        if (self.SEAGULL_AUDIT_VERIFY_REPORTED_BREAKS or 0) < 1:
+            errors.append("SEAGULL_AUDIT_VERIFY_REPORTED_BREAKS must be >= 1")
         if self.SEAGULL_SEARCH_BACKEND not in {"auto", "elasticsearch", "postgres"}:
             errors.append("SEAGULL_SEARCH_BACKEND must be one of: auto, elasticsearch, postgres")
         if self.SEAGULL_ES_EXPECTED_STATUS not in {"auto", "green", "yellow"}:
