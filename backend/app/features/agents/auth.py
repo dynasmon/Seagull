@@ -8,6 +8,8 @@ from typing import Optional, Tuple
 from fastapi import HTTPException, Request, status
 from sqlalchemy import or_
 
+from app.core.cache.client import get_redis
+from app.core.config import settings
 from app.core.config.env_secrets import getenv_compat
 from app.core.db import SessionLocal
 from app.core.observability import incr_counter
@@ -119,6 +121,19 @@ def hash_agent_credential(raw_credential: str, salt: str) -> str:
     return _sha256_hex((salt + (raw_credential or "")).encode("utf-8"))
 
 
+def _claim_last_seen_write(agent_id: str) -> bool:
+    window = int(getattr(settings, "SEAGULL_AGENT_LAST_SEEN_THROTTLE_SECONDS", 60) or 0)
+    if window <= 0:
+        return True
+    client = get_redis()
+    if client is None:
+        return False
+    try:
+        return bool(client.set(f"seagull:agent:last-seen:{agent_id}", "1", nx=True, ex=window))
+    except Exception:
+        return False
+
+
 def _extract_agent_headers(request: Request) -> tuple[str, str]:
     agent_id = (request.headers.get("X-Agent-ID") or "").strip()
     credential = (request.headers.get("X-Agent-Credential") or "").strip()
@@ -166,12 +181,13 @@ def get_current_agent(request: Request) -> AgentPrincipal:
 
         _enforce_cert_identity(request, agent_id)
 
-        matched.last_used_at = now
-        agent.last_seen_at = now
-
-        db.add(matched)
-        db.add(agent)
-        db.commit()
+        if _claim_last_seen_write(agent_id):
+            agent.last_seen_at = now
+            db.add(agent)
+            db.commit()
+            incr_counter("agent_last_seen_write_total", outcome="written")
+        else:
+            incr_counter("agent_last_seen_write_total", outcome="throttled")
         incr_counter("agent_auth_requests_total", outcome="success", method="credential")
 
         return AgentPrincipal(

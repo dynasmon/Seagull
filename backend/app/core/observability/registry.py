@@ -92,6 +92,8 @@ _SPECS: Tuple[MetricSpec, ...] = (
 
     _spec("agent_auth_requests_total", "counter", "Agent authentication attempts.",
           ("outcome", "reason", "method")),
+    _spec("agent_last_seen_write_total", "counter",
+          "Agent last-seen updates on the authentication path, by outcome.", ("outcome",)),
     _spec("agent_bootstrap_token_consumed_total", "counter", "Agent bootstrap tokens consumed.",
           ("token_type", "outcome")),
     _spec("agent_bootstrap_token_issued_total", "counter", "Agent bootstrap tokens issued.", ("token_type",)),
