@@ -205,6 +205,12 @@ class Settings:
     SEAGULL_JWT_ISSUER: str = _env_str("SEAGULL_JWT_ISSUER", "seagull-backend") or "seagull-backend"
     SEAGULL_JWT_AUDIENCE: str = _env_str("SEAGULL_JWT_AUDIENCE", "seagull-portal") or "seagull-portal"
 
+    SEAGULL_RATE_LIMIT_DEGRADED_POLICY: str = (
+        _env_str("SEAGULL_RATE_LIMIT_DEGRADED_POLICY", "local") or "local"
+    ).strip().lower()
+    SEAGULL_RATE_LIMIT_LOCAL_PROCESSES: int = _env_int("SEAGULL_RATE_LIMIT_LOCAL_PROCESSES", 1)
+    SEAGULL_RATE_LIMIT_LOCAL_MAX_KEYS: int = _env_int("SEAGULL_RATE_LIMIT_LOCAL_MAX_KEYS", 10000)
+
     SEAGULL_COOKIE_SECURE: bool = _env_bool("SEAGULL_COOKIE_SECURE", False)
     SEAGULL_COOKIE_SAMESITE: str = (_env_str("SEAGULL_COOKIE_SAMESITE", "lax") or "lax").lower()
     SEAGULL_COOKIE_DOMAIN: str | None = _env_str("SEAGULL_COOKIE_DOMAIN", None)
@@ -685,6 +691,12 @@ class Settings:
             errors.append("SEAGULL_INGEST_MAX_REQUEST_BODY_BYTES must be >= SEAGULL_MAX_REQUEST_BODY_BYTES")
         if (self.SEAGULL_REDIS_PORT or 0) < 1:
             errors.append("SEAGULL_REDIS_PORT must be >= 1")
+        if self.SEAGULL_RATE_LIMIT_DEGRADED_POLICY not in {"local", "deny"}:
+            errors.append("SEAGULL_RATE_LIMIT_DEGRADED_POLICY must be one of: local, deny")
+        if (self.SEAGULL_RATE_LIMIT_LOCAL_PROCESSES or 0) < 1:
+            errors.append("SEAGULL_RATE_LIMIT_LOCAL_PROCESSES must be >= 1")
+        if (self.SEAGULL_RATE_LIMIT_LOCAL_MAX_KEYS or 0) < 1:
+            errors.append("SEAGULL_RATE_LIMIT_LOCAL_MAX_KEYS must be >= 1")
         if self.SEAGULL_ES_INDEXER_SOURCE not in {"redis", "redpanda"}:
             errors.append("SEAGULL_ES_INDEXER_SOURCE must be one of: redis, redpanda")
         if self.SEAGULL_REDPANDA_DUAL_WRITE_ENABLED and not self.SEAGULL_REDPANDA_ENABLED:
