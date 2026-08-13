@@ -15,7 +15,7 @@ os.environ.setdefault("SEAGULL_DB_URL", "postgresql://u:p@localhost:5432/seagull
 
 from app.core.config import settings
 from app.core.realtime import admission
-from app.core.security.rate_limit import RateLimitResult
+from app.core.security.rate_limit import RateLimitResult, limit_key
 from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.realtime import api as realtime_api
 from app.features.realtime import service as realtime_service
@@ -268,7 +268,9 @@ def test_websocket_closes_with_concurrency_reason_at_limit(monkeypatch) -> None:
 def test_token_endpoint_returns_429_when_rate_limited(monkeypatch) -> None:
     calls = {"n": 0}
 
-    def _fake_rate_limit(key: str, *, limit: int, window_seconds: int) -> RateLimitResult:
+    def _fake_rate_limit(
+        scope: str, dimension: str, identity: str, *, limit: int, window_seconds: int
+    ) -> RateLimitResult:
         calls["n"] += 1
         return RateLimitResult(allowed=calls["n"] <= 1, remaining=0, reset_seconds=window_seconds)
 
@@ -285,8 +287,10 @@ def test_token_endpoint_returns_429_when_rate_limited(monkeypatch) -> None:
 def test_token_endpoint_rate_limit_keyed_by_user_id(monkeypatch) -> None:
     seen: dict[str, str] = {}
 
-    def _fake_rate_limit(key: str, *, limit: int, window_seconds: int) -> RateLimitResult:
-        seen["key"] = key
+    def _fake_rate_limit(
+        scope: str, dimension: str, identity: str, *, limit: int, window_seconds: int
+    ) -> RateLimitResult:
+        seen["key"] = limit_key(scope, dimension, identity)
         return RateLimitResult(allowed=True, remaining=limit, reset_seconds=window_seconds)
 
     monkeypatch.setattr(realtime_api, "rate_limit", _fake_rate_limit)
@@ -297,4 +301,4 @@ def test_token_endpoint_rate_limit_keyed_by_user_id(monkeypatch) -> None:
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
-    assert seen["key"] == "rl:realtime_token:user:77"
+    assert seen["key"] == "rl:realtime-token:user:77"

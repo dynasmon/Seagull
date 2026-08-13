@@ -135,7 +135,7 @@ def _allow_rate_limit(monkeypatch, allowed=True):
     monkeypatch.setattr(
         agents_service,
         "rate_limit",
-        lambda key, *, limit, window_seconds: SimpleNamespace(
+        lambda scope, dimension, identity, *, limit, window_seconds: SimpleNamespace(
             allowed=allowed, remaining=1, reset_seconds=1
         ),
     )

@@ -161,7 +161,9 @@ def _replay_delivery_max() -> int:
 @router.post("/token", response_model=StreamTokenOut)
 def issue_stream_token_endpoint(user: PortalPrincipal = Depends(get_current_user)) -> StreamTokenOut:
     decision = rate_limit(
-        f"rl:realtime_token:user:{int(user.id)}",
+        "realtime-token",
+        "user",
+        str(int(user.id)),
         limit=_TOKEN_ISSUE_RATE_LIMIT,
         window_seconds=_TOKEN_ISSUE_RATE_WINDOW_SECONDS,
     )
