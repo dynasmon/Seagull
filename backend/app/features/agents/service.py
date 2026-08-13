@@ -514,8 +514,8 @@ def _within_rate_limit(request, *, scope: str, agent_id: str, ip_limit: int, age
     if request is None:
         return True
     ip = client_address(request) or "unknown"
-    ip_rl = rate_limit(f"rl:{scope}:ip:{ip}", limit=ip_limit, window_seconds=300)
-    agent_rl = rate_limit(f"rl:{scope}:agent:{agent_id}", limit=agent_limit, window_seconds=300)
+    ip_rl = rate_limit(scope, "ip", ip, limit=ip_limit, window_seconds=300)
+    agent_rl = rate_limit(scope, "agent", agent_id, limit=agent_limit, window_seconds=300)
     return ip_rl.allowed and agent_rl.allowed
 
 
