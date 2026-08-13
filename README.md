@@ -274,6 +274,7 @@ The portal targets Node 20+ and npm 10+; the backend runs Python 3.12.
 | [detections/sigma_import.md](docs/detections/sigma_import.md) | Sigma import and review. |
 | [auth/sessions.md](docs/auth/sessions.md) | Refresh rotation, one-time tokens and reuse detection. |
 | [auth/rate-limiting.md](docs/auth/rate-limiting.md) | Shared limit windows and how they degrade without Redis. |
+| [admin/audit-chain.md](docs/admin/audit-chain.md) | Audit chain linking, verification and retention anchors. |
 | [agents/authentication.md](docs/agents/authentication.md) | Agent credential validity and the last-seen throttle. |
 | [ingest/admission.md](docs/ingest/admission.md) | Event contract, body ceilings and dead letter operations. |
 | [workers/architecture.md](docs/workers/architecture.md) | Worker group manager behavior. |
