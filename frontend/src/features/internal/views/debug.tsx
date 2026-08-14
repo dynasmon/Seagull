@@ -88,8 +88,8 @@ export default function InternalDebugView() {
     return rows
       .map((r) => ({
         method: r.labels.method || "-",
-        path: r.labels.path || "-",
-        status: r.labels.status || "-",
+        route: r.labels.route || "-",
+        status: r.labels.status_class || "-",
         value: Number(r.value || 0)
       }))
       .sort((a, b) => b.value - a.value)
@@ -101,11 +101,10 @@ export default function InternalDebugView() {
     return rows
       .map((r) => ({
         method: r.labels.method || "-",
-        path: r.labels.path || "-",
-        status: r.labels.status || "-",
+        route: r.labels.route || "-",
+        status: r.labels.status_class || "-",
         count: Number(r.count || 0),
-        avg: Number(r.avg || 0),
-        max: Number(r.max || 0)
+        avg: Number(r.avg || 0)
       }))
       .sort((a, b) => b.avg - a.avg)
       .slice(0, 12);
@@ -150,10 +149,10 @@ export default function InternalDebugView() {
           ) : (
             <Table
               rows={reqCounterRows}
-              rowKey={(r, i) => `${r.method}:${r.path}:${r.status}:${i}`}
+              rowKey={(r, i) => `${r.method}:${r.route}:${r.status}:${i}`}
               columns={[
                 { key: "method", title: "Method", className: "font-mono text-xs" },
-                { key: "path", title: "Path", className: "font-mono text-xs" },
+                { key: "route", title: "Route", className: "font-mono text-xs" },
                 { key: "status", title: "Status", className: "font-mono text-xs" },
                 { key: "value", title: "Count", align: "right", className: "font-mono text-xs", render: (r) => Number(r.value).toLocaleString("en-US") }
               ]}
@@ -167,14 +166,13 @@ export default function InternalDebugView() {
           ) : (
             <Table
               rows={latencyRows}
-              rowKey={(r, i) => `${r.method}:${r.path}:${r.status}:${i}`}
+              rowKey={(r, i) => `${r.method}:${r.route}:${r.status}:${i}`}
               columns={[
                 { key: "method", title: "Method", className: "font-mono text-xs" },
-                { key: "path", title: "Path", className: "font-mono text-xs" },
+                { key: "route", title: "Route", className: "font-mono text-xs" },
                 { key: "status", title: "Status", className: "font-mono text-xs" },
                 { key: "count", title: "N", align: "right", className: "font-mono text-xs", render: (r) => Math.round(r.count) },
-                { key: "avg", title: "Avg", align: "right", className: "font-mono text-xs", render: (r) => `${Math.round(r.avg)} ms` },
-                { key: "max", title: "Max", align: "right", className: "font-mono text-xs", render: (r) => `${Math.round(r.max)} ms` }
+                { key: "avg", title: "Avg", align: "right", className: "font-mono text-xs", render: (r) => `${Math.round(r.avg)} ms` }
               ]}
             />
           )}
