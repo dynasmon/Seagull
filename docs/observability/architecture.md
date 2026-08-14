@@ -36,6 +36,22 @@ EUI observability  ──auth'd JSON──►  backend observability API ──�
   the `seagull` docker network reach it. Caddy proxies `/api/*` (portal
   listener) and `/agent/*` (dedicated mTLS listener, port 8444) to the backend,
   never `/metrics`.
+- **The exposition endpoint never crosses an edge.** `GET /metrics` carries no
+  authentication because Prometheus scrapes it over the docker network, so both
+  edges — the Caddy listener and the portal's nginx — answer `404` for
+  `/api/metrics` before anything is proxied. The portal reads counters and
+  histograms through `GET /admin/metrics-snapshot`, which returns the same
+  registry as JSON behind `require_admin`.
+- **Readiness says only whether the API can serve.** `GET /health/ready` is
+  unauthenticated and answers `{"status": "ok"}` with `200`, or `degraded` with
+  `503`. It never names the environment, the stores, their latencies or their
+  errors. The verdict is computed from the same component sweep as the full
+  report and cached for `SEAGULL_HEALTH_READY_CACHE_SECONDS` (default 5), so a
+  probe loop cannot turn into store load: thirty calls cost two sweeps.
+- **The component report is admin-gated.** `GET /health/diagnostics` returns
+  PostgreSQL, replication, Redis, Elasticsearch cluster, ClickHouse
+  materialised views and Redpanda brokers — the payload readiness used to hand
+  to anyone who asked — and both edges answer `404` for it as well.
 - **No arbitrary PromQL.** The browser asks for a named query from the allowlist;
   the backend builds the PromQL. Range requests are capped (min step 15s, max
   span 7d, max 1500 points) so a client cannot request an enormous matrix.
@@ -50,6 +66,7 @@ EUI observability  ──auth'd JSON──►  backend observability API ──�
 | Variable | Default | Purpose |
 |---|---|---|
 | `SEAGULL_METRICS_ENABLED` | `true` | Serve `/metrics`; emission is always on. |
+| `SEAGULL_HEALTH_READY_CACHE_SECONDS` | `5` | How long `/health/ready` reuses its verdict before probing again. |
 | `SEAGULL_PROMETHEUS_ENABLED` | `true` | Enable the server-side query layer. |
 | `SEAGULL_PROMETHEUS_URL` | `http://prometheus:9090` | Internal Prometheus base URL. |
 | `SEAGULL_PROMETHEUS_TIMEOUT_SECONDS` | `5` | Per-request query timeout. |

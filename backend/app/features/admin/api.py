@@ -64,3 +64,8 @@ def admin_system_status(
 ):
     with managed_session(db) as db_session:
         return service.admin_system_status(db_session)
+
+
+@router.get("/metrics-snapshot")
+def admin_metrics_snapshot(_: PortalPrincipal = Depends(require_admin)):
+    return service.admin_metrics_snapshot()

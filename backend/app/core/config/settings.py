@@ -122,6 +122,9 @@ class Settings:
     # Observability / Prometheus.
     # Metrics emission + the internal /metrics exposition endpoint.
     SEAGULL_METRICS_ENABLED: bool = _env_bool("SEAGULL_METRICS_ENABLED", True)
+    # How long the public readiness verdict is reused before the stores are
+    # probed again. The full component report is never public.
+    SEAGULL_HEALTH_READY_CACHE_SECONDS: float = _env_float("SEAGULL_HEALTH_READY_CACHE_SECONDS", 5.0)
     # Server-side Prometheus query layer (used by the observability API). When
     # disabled or unreachable the API degrades gracefully instead of erroring.
     SEAGULL_PROMETHEUS_ENABLED: bool = _env_bool("SEAGULL_PROMETHEUS_ENABLED", True)

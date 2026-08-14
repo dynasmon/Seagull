@@ -93,7 +93,7 @@ synchronously only after the batch is fully resolved (indexed or dead-lettered).
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `SEAGULL_REDPANDA_ENABLED` | `false` | master switch; enables the producer singleton and the `/health/ready` broker check |
+| `SEAGULL_REDPANDA_ENABLED` | `false` | master switch; enables the producer singleton and the `/health/diagnostics` broker check |
 | `SEAGULL_REDPANDA_BROKERS` | `redpanda:9092` | bootstrap servers (comma-separated in prod) |
 | `SEAGULL_REDPANDA_DUAL_WRITE_ENABLED` | `false` | producers write to Redpanda in addition to Redis |
 | `SEAGULL_ES_INDEXER_SOURCE` | `redis` | selects `es-indexer-stream` (Redis) or `es-indexer-redpanda` as the active pilot consumer |
@@ -124,7 +124,7 @@ Application metrics (Prometheus, exported by backend `:8000/metrics` and workers
   other failed (`redis_write_failed`, `redpanda_write_failed`, `producer_unavailable`)
 
 Broker metrics: Prometheus scrapes `redpanda:9644/public_metrics` (job `redpanda` in
-`infra/prometheus/prometheus.yml`). `/health/ready` reports a `redpanda` component
+`infra/prometheus/prometheus.yml`). `/health/diagnostics` reports a `redpanda` component
 (status, broker count, latency) whenever `SEAGULL_REDPANDA_ENABLED=true`; it degrades
 but never blocks readiness while Redpanda is in coexistence mode.
 
