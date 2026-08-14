@@ -18,6 +18,15 @@ from app.features.ingest.control.queue_keys import (
 
 logger = logging.getLogger("seagull.ingest.control")
 
+MIN_EVENT_TYPES_PER_SECOND = 4
+
+
+def max_event_types_per_second() -> int:
+    return max(
+        MIN_EVENT_TYPES_PER_SECOND,
+        _env_int("SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 16),
+    )
+
 
 def record_overview_live_telemetry(
     *,
@@ -44,7 +53,7 @@ def record_overview_live_telemetry(
     ts_s = int((bucket_ts or datetime.now(timezone.utc)).timestamp())
     key = _overview_live_key(ts_s)
     retention_s = max(60, _env_int("SEAGULL_OVERVIEW_LIVE_RETENTION_SECONDS", 1800))
-    max_event_types = max(4, _env_int("SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 16))
+    max_event_types = max_event_types_per_second()
 
     try:
         pipe = r.pipeline()
