@@ -1,7 +1,7 @@
 from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, SmallInteger, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 
-from app.core.db import Base
+from app.core.db import Base, BigIntId
 
 
 class NetEventModel(Base):
@@ -10,7 +10,7 @@ class NetEventModel(Base):
     # No single-column indexes on id/agent_id/event_type/timestamp: the pkey
     # and the composite indexes in schema_bootstrap (agent_ts, type_ts, ts_id)
     # already cover those prefixes; extra copies only tax every INSERT.
-    id = Column(BigInteger, primary_key=True)
+    id = Column(BigIntId, primary_key=True)
     agent_id = Column(String(64), nullable=False)
     event_type = Column(String(32), nullable=False)
     schema_version = Column(SmallInteger, nullable=False, default=1)

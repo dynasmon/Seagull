@@ -1,7 +1,7 @@
-from sqlalchemy import JSON, BigInteger, Column, DateTime, Index, Integer, String, Text, func
+from sqlalchemy import JSON, Column, DateTime, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 
-from app.core.db import Base
+from app.core.db import Base, BigIntId
 
 SINK_CLICKHOUSE = "clickhouse"
 SINK_SEARCH = "search"
@@ -11,7 +11,7 @@ SINK_WARM = "warm"
 class EventOutboxModel(Base):
     __tablename__ = "event_outbox"
 
-    id = Column(BigInteger().with_variant(Integer(), "sqlite"), primary_key=True, autoincrement=True)
+    id = Column(BigIntId, primary_key=True, autoincrement=True)
     sink = Column(String(32), nullable=False)
     payload = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
     event_count = Column(Integer, nullable=False, default=0)
@@ -26,7 +26,7 @@ class EventOutboxModel(Base):
 class EventOutboxDeadLetterModel(Base):
     __tablename__ = "event_outbox_dead_letter"
 
-    id = Column(BigInteger().with_variant(Integer(), "sqlite"), primary_key=True, autoincrement=True)
+    id = Column(BigIntId, primary_key=True, autoincrement=True)
     sink = Column(String(32), nullable=False)
     payload = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=False)
     event_count = Column(Integer, nullable=False, default=0)

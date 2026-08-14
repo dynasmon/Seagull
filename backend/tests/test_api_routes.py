@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
+from app.core.db import routed_db
 from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.main import app
 
@@ -74,9 +75,10 @@ def test_admin_route_forbidden_when_not_admin() -> None:
         app.dependency_overrides.pop(require_admin, None)
 
 
-def test_admin_route_ok_with_admin_and_mocked_db(monkeypatch) -> None:
+def test_admin_route_ok_with_admin_and_mocked_db() -> None:
+    login_history_db = routed_db("admin-login-history")
     app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=1, username="root", role="admin")
-    monkeypatch.setattr("app.features.admin.api.SessionLocal", lambda: _FakeDB())
+    app.dependency_overrides[login_history_db] = lambda: _FakeDB()
     try:
         with TestClient(app) as client:
             r = client.get("/admin/login-history?limit=5")
@@ -84,6 +86,7 @@ def test_admin_route_ok_with_admin_and_mocked_db(monkeypatch) -> None:
             assert r.json() == []
     finally:
         app.dependency_overrides.pop(require_admin, None)
+        app.dependency_overrides.pop(login_history_db, None)
 
 
 def test_events_hunt_explain_forbidden_for_non_admin() -> None:

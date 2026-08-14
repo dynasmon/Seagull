@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.features.ingest.control import overview_live as ic
-from app.features.ingest.control import queue_keys
 
 
 class _Pipe:
@@ -122,22 +121,28 @@ def test_record_and_read_live_overview_window(monkeypatch) -> None:
 def test_live_overview_caps_event_type_cardinality(monkeypatch) -> None:
     fake = _FakeRedis()
     monkeypatch.setattr(ic, "get_redis", lambda: fake)
-    monkeypatch.setattr(settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 2, raising=False)
-    monkeypatch.setattr(queue_keys.settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 2, raising=False)
-    monkeypatch.setattr(
-        ic,
-        "_env_int",
-        lambda name, default: 2 if name == "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND" else queue_keys._env_int(name, default),
-    )
+
+    cap = ic.max_event_types_per_second()
+    overflow = 3
+    counts = {f"type-{i:03d}": cap + overflow - i for i in range(cap + overflow)}
+    dropped = sum(sorted(counts.values())[:overflow])
 
     ts = datetime(2026, 4, 5, 12, 1, 0, tzinfo=timezone.utc)
     ic.record_overview_live_telemetry(
-        ingest_received=20,
-        event_type_counts={"a": 8, "b": 7, "c": 5},
+        ingest_received=sum(counts.values()),
+        event_type_counts=counts,
         severity_counts={},
         bucket_ts=ts,
     )
     out = ic.read_overview_live_window(now_s=int(ts.timestamp()), seconds=5)
     row = out["rows"][0]
-    assert len(row["event_types"]) == 2
-    assert int(row["dropped_event_type_counts"]) == 5
+    assert len(row["event_types"]) == cap
+    assert int(row["dropped_event_type_counts"]) == dropped
+
+
+def test_live_overview_event_type_cap_never_drops_below_the_floor(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 1, raising=False)
+    assert ic.max_event_types_per_second() == ic.MIN_EVENT_TYPES_PER_SECOND
+
+    monkeypatch.setattr(settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 32, raising=False)
+    assert ic.max_event_types_per_second() == 32
