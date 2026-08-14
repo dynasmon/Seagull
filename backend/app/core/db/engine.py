@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Callable, Iterator
 
 from sqlalchemy import create_engine
@@ -184,6 +185,7 @@ def open_routed_session(route_key: str) -> Session:
     return session
 
 
+@lru_cache(maxsize=None)
 def routed_db(route_key: str) -> Callable[[], Iterator[Session]]:
     def dependency() -> Iterator[Session]:
         db = open_routed_session(route_key)
