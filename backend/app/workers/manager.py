@@ -199,6 +199,12 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
     "maintenance": (
         ChildSpec(name="audit-retention", module="app.workers.maintenance.audit_retention"),
         ChildSpec(
+            name="audit-verifier",
+            module="app.workers.maintenance.audit_verifier",
+            enabled_env="SEAGULL_AUDIT_VERIFY_ENABLED",
+            enabled_default=True,
+        ),
+        ChildSpec(
             name="bootstrap-rotator",
             argv=(sys.executable, "/scripts/agent_bootstrap_token_rotator.py"),
             enabled_env="SEAGULL_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR",
