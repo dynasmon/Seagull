@@ -17,7 +17,11 @@ os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:test@127.0.0.1:543
 
 from app.core.db import Base
 from app.core.db.model_registry import load_all_models
-from app.features.admin.models import AdminAuditEventModel
+from app.features.admin.models import (
+    AdminAuditEventModel,
+    AuditChainCheckpointModel,
+    AuditChainHeadModel,
+)
 from app.features.ueba import lifecycle, repository, service
 from app.features.ueba.domain import feedback as fb
 from app.features.ueba.domain.support import _record_finding
@@ -47,6 +51,8 @@ def db_session():
         engine,
         tables=[
             AdminAuditEventModel.__table__,
+            AuditChainHeadModel.__table__,
+            AuditChainCheckpointModel.__table__,
             UebaBaselineModel.__table__,
             UebaFindingModel.__table__,
             UebaFindingEvidenceModel.__table__,
@@ -76,6 +82,8 @@ def db_session():
                 UebaFindingEvidenceModel.__table__,
                 UebaFindingModel.__table__,
                 UebaBaselineModel.__table__,
+                AuditChainCheckpointModel.__table__,
+                AuditChainHeadModel.__table__,
                 AdminAuditEventModel.__table__,
             ],
         )
