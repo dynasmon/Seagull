@@ -5,10 +5,12 @@ import gzip
 import hashlib
 import io
 import os
+import pwd
 import shutil
 import subprocess
 import tarfile
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -70,6 +72,18 @@ def _script(rendered: bytes) -> str:
 def _payload(rendered: bytes) -> bytes:
     encoded = rendered.decode("utf-8").split(f"\n{installer._PAYLOAD_MARKER}\n", 1)[1]
     return base64.b64decode(encoded)
+
+
+def _non_root_invocation(script: Path, basetemp: Path) -> dict:
+    if os.geteuid() != 0:
+        return {}
+    for directory in (basetemp.parent, basetemp, script.parent):
+        directory.chmod(directory.stat().st_mode | 0o055)
+    script.chmod(script.stat().st_mode | 0o055)
+    try:
+        return {"user": pwd.getpwnam("nobody").pw_uid}
+    except KeyError:
+        return {"user": 65534}
 
 
 class TestRender:
@@ -143,10 +157,15 @@ class TestRender:
         subprocess.run(["bash", "-n", str(path)], check=True)
 
     @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is unavailable")
-    def test_rendered_script_refuses_a_non_root_invocation(self, tmp_path):
+    def test_rendered_script_refuses_a_non_root_invocation(self, tmp_path, tmp_path_factory):
         path = tmp_path / "installer.sh"
         path.write_bytes(installer.render(_spec(), PACKAGE))
-        result = subprocess.run(["bash", str(path)], capture_output=True, text=True)
+        result = subprocess.run(
+            ["bash", str(path)],
+            capture_output=True,
+            text=True,
+            **_non_root_invocation(path, tmp_path_factory.getbasetemp()),
+        )
         assert result.returncode == 1
         assert "run this installer as root" in result.stderr
 

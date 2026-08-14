@@ -399,10 +399,27 @@ def cmd_deps(args: argparse.Namespace) -> int:
     return _deps.check_and_report()
 
 
+def _accepted_advisories(backend: Path) -> list[str]:
+    accepted = backend / "pip-audit-accepted.txt"
+    if not accepted.is_file():
+        return []
+    args: list[str] = []
+    for line in accepted.read_text(encoding="utf-8").splitlines():
+        advisory = line.split()[0] if line.split() else ""
+        if advisory:
+            args.extend(["--ignore-vuln", advisory])
+    return args
+
+
 def cmd_deps_check(args: argparse.Namespace) -> int:
     root = _env.root()
+    backend = root / "backend"
     steps = [
-        (["python3", "-m", "pip_audit", "-r", "requirements.lock"], root / "backend"),
+        (
+            ["python3", "-m", "pip_audit", "-r", "requirements.lock", "--strict"]
+            + _accepted_advisories(backend),
+            backend,
+        ),
         (["npm", "audit", "--audit-level=high"], root / "frontend"),
     ]
     for cmd, cwd in steps:

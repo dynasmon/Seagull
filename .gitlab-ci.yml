@@ -21,21 +21,18 @@ cli-reproducibility-tests:
   script:
     - python -m pytest cli/tests -q
 
-detection-rule-tests:
+backend-quality:
   stage: test
   image: python:3.12-slim
   interruptible: true
+  timeout: 30m
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-  variables:
-    SEAGULL_SKIP_STARTUP_BOOTSTRAP: "true"
-    SEAGULL_JWT_SECRET: "ci-detection-rule-tests-jwt-secret-value-rotate-me"
-    SEAGULL_DB_URL: "postgresql://seagull:seagull@127.0.0.1:5432/seagull"
   before_script:
     - pip install --no-cache-dir -r backend/requirements-dev.txt
   script:
-    - python -m pytest backend/ -k "yaml_tests or quality" -q --tb=short
+    - bash scripts/ci/backend-quality.sh
 
 seagull-up-fresh-machine:
   stage: reproducibility
