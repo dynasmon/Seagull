@@ -453,7 +453,7 @@ wrong: bootstrapping twice (the UUID mismatch above — two clusters that will n
 merge) and even master-eligible counts. Verify a single master with
 `curl "$ES/_cat/master"` from several nodes.
 
-**Backend view during incidents.** `/health/ready` →
+**Backend view during incidents.** `/health/diagnostics` →
 `components.elasticsearch.cluster` reports `status`, `expected`,
 `below_expected_seconds` and `alert`. `SEAGULL_ES_EXPECTED_STATUS` defaults to
 `auto` (green expected for multi-node, yellow for single-node);
