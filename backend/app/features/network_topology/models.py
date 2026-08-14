@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, DateTime, Float, Integer, String, func
+from sqlalchemy import Column, DateTime, Float, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 
-from app.core.db import Base
+from app.core.db import Base, BigIntId
 
 
 class TopologyNodeModel(Base):
     __tablename__ = "network_topology_nodes"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigIntId, primary_key=True, index=True)
     node_key = Column(String(256), unique=True, index=True, nullable=False)
     node_type = Column(String(32), index=True, nullable=False)
     agent_id = Column(String(64), index=True, nullable=True)
@@ -34,7 +34,7 @@ class TopologyNodeModel(Base):
 class TopologyEdgeModel(Base):
     __tablename__ = "network_topology_edges"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigIntId, primary_key=True, index=True)
     edge_key = Column(String(256), unique=True, index=True, nullable=False)
     source_node_key = Column(String(256), index=True, nullable=False)
     target_node_key = Column(String(256), index=True, nullable=False)
@@ -56,7 +56,7 @@ class TopologyEdgeModel(Base):
 class TopologyObservationModel(Base):
     __tablename__ = "network_topology_observations"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigIntId, primary_key=True, index=True)
     node_key = Column(String(256), index=True, nullable=False)
     edge_key = Column(String(256), index=True, nullable=True)
     agent_id = Column(String(64), index=True, nullable=True)
@@ -70,7 +70,7 @@ class TopologyObservationModel(Base):
 class TopologySnapshotModel(Base):
     __tablename__ = "network_topology_snapshots"
 
-    id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigIntId, primary_key=True, index=True)
     snapshot_key = Column(String(128), unique=True, index=True, nullable=False)
     node_count = Column(Integer, nullable=False, default=0)
     edge_count = Column(Integer, nullable=False, default=0)
