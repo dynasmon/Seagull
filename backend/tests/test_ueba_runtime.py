@@ -36,7 +36,7 @@ from app.features.ueba.models import (
     UebaPeerGroupModel,
     UebaSuppressionModel,
 )
-from app.features.ueba.worker_runtime import UebaWorkerConfig, run_ueba_cycle
+from app.features.ueba.worker_runtime import UebaWorkerConfig, load_worker_config, run_ueba_cycle
 
 
 @compiles(JSONB, "sqlite")
@@ -81,72 +81,12 @@ def _ts(*, hour: int = 12, minute: int = 0) -> datetime:
 
 
 def _cfg(**overrides) -> UebaWorkerConfig:
-    base = UebaWorkerConfig(
-        interval_seconds=60.0,
+    base = replace(
+        load_worker_config(),
         log_every_seconds=0.0,
         failing_after=1,
-        cooldown_minutes=60,
-        max_findings_per_detector_cycle=20,
-        active_entity_hours=24,
-        login_hour_lookback_hours=72,
         login_hour_min_samples=4,
-        login_hour_max_events_per_cycle=100,
-        login_hour_min_rarity_bits=3.0,
-        login_hour_min_z_score=2.5,
-        source_diversity_window_minutes=15,
         source_diversity_min_samples=4,
-        source_diversity_max_entities_per_cycle=100,
-        source_diversity_max_windows_per_cycle=4,
-        source_diversity_min_z_score=3.0,
-        outbound_bytes_window_minutes=15,
-        outbound_bytes_min_samples=10,
-        outbound_bytes_max_entities_per_cycle=100,
-        outbound_bytes_max_windows_per_cycle=4,
-        outbound_bytes_min_z_score=3.5,
-        lateral_spread_window_minutes=15,
-        lateral_spread_min_samples=8,
-        lateral_spread_max_entities_per_cycle=100,
-        lateral_spread_max_windows_per_cycle=4,
-        lateral_spread_min_z_score=3.0,
-        proc_exec_rate_window_minutes=5,
-        proc_exec_rate_min_samples=12,
-        proc_exec_rate_max_entities_per_cycle=100,
-        proc_exec_rate_max_windows_per_cycle=6,
-        proc_exec_rate_min_z_score=4.0,
-        proc_name_lookback_hours=72,
-        proc_name_max_events_per_cycle=100,
-        proc_name_min_rarity_bits=4.0,
-        proc_name_min_samples_for_maturity=5,
-        proc_name_rarity_lookback_hours=168,
-        fim_spike_window_minutes=5,
-        fim_spike_min_samples=10,
-        fim_spike_max_entities_per_cycle=100,
-        fim_spike_max_windows_per_cycle=6,
-        fim_spike_min_z_score=4.0,
-        sudo_hour_lookback_hours=72,
-        sudo_hour_min_samples=15,
-        sudo_hour_max_events_per_cycle=100,
-        sudo_hour_min_rarity_bits=3.0,
-        sudo_hour_min_z_score=2.5,
-        if_training_min_samples=500,
-        if_retraining_interval_seconds=21_600,
-        if_model_stale_seconds=86_400,
-        if_model_retention_days=30,
-        if_model_cache_ttl_seconds=300,
-        if_weight=0.6,
-        rarity_weight=0.4,
-        if_n_estimators=200,
-        if_random_state=42,
-        if_feature_schema_version=1,
-        peer_clustering_interval_seconds=21_600,
-        peer_group_retention_days=90,
-        peer_min_silhouette_score=0.25,
-        peer_distance_percentile=95.0,
-        peer_current_window_minutes=60,
-        peer_feature_schema_version=1,
-        peer_min_agents=4,
-        peer_min_mature_days=3,
-        peer_max_events_per_clustering=50_000,
     )
     return replace(base, **overrides)
 
