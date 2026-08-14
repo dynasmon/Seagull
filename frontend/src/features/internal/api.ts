@@ -6,7 +6,7 @@ export function getBackendHealth() {
 }
 
 export function getMetricsSnapshot() {
-  return apiGet<MetricsSnapshot>("/api/metrics", { cacheMs: 0, force: true });
+  return apiGet<MetricsSnapshot>("/api/admin/metrics-snapshot", { cacheMs: 0, force: true });
 }
 
 export function getSystemStatus() {
