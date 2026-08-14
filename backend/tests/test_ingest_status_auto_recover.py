@@ -6,6 +6,7 @@ import time
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
+from app.features.ingest.control import queue_keys
 from app.features.ingest.control import recovery as ic
 
 
@@ -31,19 +32,19 @@ class _FakeRedis:
     def __init__(self) -> None:
         now_s = int(time.time())
         self.data = {
-            ic.storm_active_key(): "1",
+            queue_keys.storm_active_key(): "1",
             "seagull:ingest:storm_reason": "soft_backlog",
             "seagull:ingest:storm_sample_hot": "5",
             "seagull:ingest:storm_sample_warm": "2",
             "seagull:overview:v2:w=60|a=*|lite=1": "cached",
             "seagull:events:ssh_summary:v3:x": "cached",
             "seagull:inventory:overview:v2:x": "cached",
-            ic.backlog_events_key(): "999999",
-            ic._worker_eps_key(now_s - 1): "0",  # noqa: SLF001
-            ic._worker_msgs_key(now_s - 1): "0",  # noqa: SLF001
+            queue_keys.backlog_events_key(): "999999",
+            queue_keys._worker_eps_key(now_s - 1): "0",
+            queue_keys._worker_msgs_key(now_s - 1): "0",
         }
         self.hashes = {
-            ic._pressure_state_key(): {  # noqa: SLF001
+            queue_keys._pressure_state_key(): {
                 "phase": "draining",
                 "reason": "recovery",
                 "since_ts": str(now_s - 600),
@@ -51,7 +52,7 @@ class _FakeRedis:
                 "last_progress_ts": str(now_s - 600),
             }
         }
-        self.lens = {ic.queue_key(): 0, ic.processing_key(): 0}
+        self.lens = {queue_keys.queue_key(): 0, queue_keys.processing_key(): 0}
 
     def get(self, key):
         return self.data.get(str(key))
@@ -112,7 +113,7 @@ def test_get_storm_status_auto_recovers_and_clears_runtime_cache(monkeypatch) ->
     out = ic.get_storm_status()
 
     assert out["phase"] == "ok"
-    assert ic.storm_active_key() not in fake.data
+    assert queue_keys.storm_active_key() not in fake.data
     assert "seagull:ingest:storm_reason" not in fake.data
     assert "seagull:overview:v2:w=60|a=*|lite=1" not in fake.data
     assert "seagull:events:ssh_summary:v3:x" not in fake.data
