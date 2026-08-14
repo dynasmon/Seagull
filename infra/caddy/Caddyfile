@@ -41,6 +41,11 @@ import /etc/caddy/conf.d/*.caddy
 		}
 	}
 
+	@internal_only path /api/metrics /api/health/diagnostics
+	handle @internal_only {
+		respond "Not Found" 404
+	}
+
 	handle_path /api/* {
 		request_body {
 			max_size {$SEAGULL_EDGE_MAX_BODY:2MiB}
