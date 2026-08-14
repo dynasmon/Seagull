@@ -16,9 +16,11 @@ from .engine import (
     start_replica_monitor,
     stop_replica_monitor,
 )
+from .types import BigIntId
 
 __all__ = [
     "Base",
+    "BigIntId",
     "SessionLocal",
     "SessionLocalRead",
     "SessionLocalWrite",
