@@ -279,6 +279,7 @@ The portal targets Node 20+ and npm 10+; the backend runs Python 3.12.
 | [workers/architecture.md](docs/workers/architecture.md) | Worker group manager behavior. |
 | [workers/analytical_sinks.md](docs/workers/analytical_sinks.md) | Outbox delivery to ClickHouse and Elasticsearch. |
 | [observability/architecture.md](docs/observability/architecture.md) | Metrics and observability APIs. |
+| [development/quality-gate.md](docs/development/quality-gate.md) | Checks every merge request must pass and the accepted advisories. |
 
 Detection content lives in [`rules/`](rules/). The API is documented at `/docs`
 when the backend runs in development mode.
