@@ -7,9 +7,8 @@ import sys
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from sqlalchemy import text
 from starlette import status
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
@@ -17,22 +16,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.api.body_limit import RequestBodyLimitMiddleware, policy_from_settings
-from app.core.cache import get_redis
 from app.core.config import settings
-from app.core.db import engine, read_router, start_replica_monitor, stop_replica_monitor
+from app.core.db import engine, start_replica_monitor, stop_replica_monitor
 from app.core.db.capacity import sequence_capacity_report
 from app.core.db.lifecycle import FatalStartupError, ensure_database_ready
 from app.core.db.locks import advisory_lock
 from app.core.db.model_registry import load_all_models
-from app.core.integrations.clickhouse import (
-    clickhouse_is_available,
-    clickhouse_is_enabled,
-    clickhouse_missing_mvs,
-    expected_clickhouse_mv_names,
-    get_clickhouse_client,
-)
-from app.core.integrations.es import es_cluster_status_report, es_is_available, search_backend_mode
-from app.core.messaging.health import redpanda_connectivity
+from app.core.health import diagnostics_report, readiness_verdict
+from app.core.integrations.es import es_cluster_status_report, search_backend_mode
 from app.core.observability import (
     clear_request_context,
     incr_counter,
@@ -54,6 +45,7 @@ from app.features.alerts.api import router as alerts_router
 from app.features.attack_chain.api import router as attack_chain_router
 from app.features.auth.api import router as auth_router
 from app.features.auth.bootstrap import bootstrap_portal_admin
+from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.correlations.api import router as correlations_router
 from app.features.correlations.bootstrap import bootstrap_correlation_rules
 from app.features.detections.api import router as detections_router
@@ -351,152 +343,16 @@ async def health_live():
 
 @app.get("/health/ready")
 def health_ready(response: Response):
-    ready = True
-    components = {}
-
-    db_latency_ms = None
-    db_error = None
-    t0 = time.perf_counter()
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        db_latency_ms = round((time.perf_counter() - t0) * 1000.0, 2)
-    except Exception as exc:
-        ready = False
-        db_error = str(exc).splitlines()[0][:200]
-    components["database"] = {
-        "status": "ok" if db_error is None else "down",
-        "latency_ms": db_latency_ms,
-        "error": db_error,
-    }
-
-    if read_router.enabled:
-        try:
-            read_router.probe_if_stale()
-        except Exception:
-            pass
-        replication = read_router.status_report()
-        healthy_replicas = int(replication.get("healthy") or 0)
-        total_replicas = int(replication.get("total") or 0)
-        replication["status"] = "ok" if healthy_replicas == total_replicas else "degraded"
-        components["postgres_replication"] = replication
-
-    redis_latency_ms = None
-    redis_error = None
-    try:
-        r = get_redis()
-        if r is None:
-            redis_error = "redis unavailable"
-        else:
-            t1 = time.perf_counter()
-            if not bool(r.ping()):
-                redis_error = "ping failed"
-            redis_latency_ms = round((time.perf_counter() - t1) * 1000.0, 2)
-    except Exception as exc:
-        redis_error = str(exc).splitlines()[0][:200]
-    components["redis"] = {
-        "status": "ok" if redis_error is None else "degraded",
-        "latency_ms": redis_latency_ms,
-        "error": redis_error,
-    }
-
-    es_mode = search_backend_mode()
-    es_required = es_mode == "elasticsearch"
-    es_latency_ms = None
-    es_error = None
-    t2 = time.perf_counter()
-    try:
-        es_ok = bool(es_is_available())
-        es_latency_ms = round((time.perf_counter() - t2) * 1000.0, 2)
-        if not es_ok:
-            es_error = "elasticsearch unavailable"
-    except Exception as exc:
-        es_error = str(exc).splitlines()[0][:200]
-
-    if es_required and es_error is not None:
-        ready = False
-
-    es_cluster = None
-    try:
-        es_cluster = es_cluster_status_report()
-    except Exception:
-        es_cluster = None
-
-    es_status = "ok" if es_error is None else ("down" if es_required else "degraded")
-    if es_status == "ok" and es_cluster is not None and es_cluster.get("alert"):
-        es_status = "degraded"
-    components["elasticsearch"] = {
-        "status": es_status,
-        "required": es_required,
-        "mode": es_mode,
-        "latency_ms": es_latency_ms,
-        "error": es_error,
-        "cluster": es_cluster,
-    }
-
-    ch_enabled = bool(clickhouse_is_enabled())
-    ch_required = bool(getattr(settings, "SEAGULL_CLICKHOUSE_REQUIRED", False))
-    ch_latency_ms = None
-    ch_error = None
-    if ch_required and not ch_enabled:
-        ready = False
-        ch_error = "clickhouse required but disabled"
-    elif ch_enabled:
-        t3 = time.perf_counter()
-        try:
-            ch_ok = bool(clickhouse_is_available())
-            ch_latency_ms = round((time.perf_counter() - t3) * 1000.0, 2)
-            if not ch_ok:
-                ch_error = "clickhouse unavailable"
-        except Exception as exc:
-            ch_error = str(exc).splitlines()[0][:200]
-        if ch_required and ch_error is not None:
-            ready = False
-
-    ch_mvs = None
-    if ch_enabled and ch_error is None:
-        try:
-            missing_mvs = clickhouse_missing_mvs(get_clickhouse_client())
-            expected_mvs = expected_clickhouse_mv_names()
-            ch_mvs = {
-                "expected": len(expected_mvs),
-                "present": len(expected_mvs) - len(missing_mvs),
-                "missing": missing_mvs,
-            }
-        except Exception as exc:
-            ch_mvs = {"error": str(exc).splitlines()[0][:200]}
-
-    ch_status = "disabled" if not ch_enabled else ("ok" if ch_error is None else ("down" if ch_required else "degraded"))
-    # Missing MVs never block readiness: every MV read has a raw-table fallback.
-    if ch_status == "ok" and ch_required and ch_mvs is not None and (ch_mvs.get("missing") or ch_mvs.get("error")):
-        ch_status = "degraded"
-    components["clickhouse"] = {
-        "enabled": ch_enabled,
-        "required": ch_required,
-        "status": ch_status,
-        "latency_ms": ch_latency_ms,
-        "error": ch_error,
-        "mvs": ch_mvs,
-    }
-
-    if settings.SEAGULL_REDPANDA_ENABLED:
-        redpanda = redpanda_connectivity(timeout_seconds=2.0)
-        components["redpanda"] = {
-            "enabled": True,
-            "status": redpanda.get("status"),
-            "latency_ms": redpanda.get("latency_ms"),
-            "brokers": redpanda.get("brokers"),
-            "dual_write": bool(settings.SEAGULL_REDPANDA_DUAL_WRITE_ENABLED),
-            "error": redpanda.get("error"),
-        }
-
+    ready = readiness_verdict()
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
-    return {
-        "status": "ok" if ready else "degraded",
-        "service": "backend-api",
-        "environment": settings.SEAGULL_ENV,
-        "components": components,
-    }
+    return {"status": "ok" if ready else "degraded"}
+
+
+@app.get("/health/diagnostics")
+def health_diagnostics(response: Response, _: PortalPrincipal = Depends(require_admin)):
+    report = diagnostics_report()
+    response.status_code = status.HTTP_200_OK if report["ready"] else status.HTTP_503_SERVICE_UNAVAILABLE
+    return report
 
 
 @app.get("/metrics")
