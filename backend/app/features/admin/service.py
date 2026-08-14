@@ -78,6 +78,10 @@ def admin_runtime_config() -> dict:
     return {"config": settings.runtime_config_for_admin()}
 
 
+def admin_metrics_snapshot() -> dict:
+    return snapshot_metrics()
+
+
 def admin_login_history(db: Session, *, limit: int, include_failed: bool) -> list[LoginEventOut]:
     rows = repository.list_admin_login_events(db, limit=limit, include_failed=include_failed)
     out: list[LoginEventOut] = []
