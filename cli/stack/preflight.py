@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import re
 import shutil
 import subprocess
@@ -9,6 +10,81 @@ from ..config import env as _env
 from ..security import tls as _tls
 from ..security import secrets as _secrets
 from . import compose as _compose
+
+MIN_SIGNER_TOKEN_LENGTH = 32
+SIGNER_TOKEN_BYTES = 32
+
+INTERNAL_PORT_VARS = (
+    "SEAGULL_BACKEND_PORT",
+    "SEAGULL_PORTAL_PORT",
+    "ELASTICSEARCH_PORT",
+    "KIBANA_PORT",
+    "CLICKHOUSE_HTTP_PORT",
+    "CLICKHOUSE_NATIVE_PORT",
+    "SEAGULL_REDPANDA_KAFKA_PORT",
+    "SEAGULL_REDPANDA_ADMIN_PORT",
+)
+
+
+def _is_loopback_publish(value: str) -> bool:
+    spec = value.strip()
+    if not spec:
+        return True
+    host, separator, _ = spec.rpartition(":")
+    if not separator:
+        return False
+    host = host.strip().strip("[]")
+    if host in ("localhost", ""):
+        return host == "localhost"
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def exposed_internal_ports() -> list[str]:
+    return [name for name in INTERNAL_PORT_VARS if not _is_loopback_publish(_env.read(name, ""))]
+
+
+def _check_internal_exposure() -> None:
+    exposed = exposed_internal_ports()
+    if not exposed:
+        return
+    listed = ", ".join(exposed)
+    if _env.is_production():
+        raise RuntimeError(
+            f"[preflight] these ports are published outside loopback: {listed}. "
+            f"In production only the edge listeners face the network — bind them to "
+            f"127.0.0.1 (e.g. SEAGULL_BACKEND_PORT=127.0.0.1:8000) or leave them empty"
+        )
+    print(f"[preflight] warning: published outside loopback (dev only): {listed}")
+
+
+def _resolve_signer_token() -> str:
+    token = _env.read("SEAGULL_PKI_SIGNER_TOKEN", "")
+    if token:
+        return token
+    location = _env.read("SEAGULL_PKI_SIGNER_TOKEN_FILE", "")
+    if not location:
+        return ""
+    path = _abs(location)
+    if not path.exists():
+        raise RuntimeError(
+            f"[preflight] SEAGULL_PKI_SIGNER_TOKEN_FILE points to missing file: {path}"
+        )
+    return path.read_text().strip()
+
+
+def _ensure_signer_token() -> None:
+    token = _resolve_signer_token()
+    if not token:
+        _env.upsert("SEAGULL_PKI_SIGNER_TOKEN", _secrets.generate(SIGNER_TOKEN_BYTES))
+        print("[preflight] generated SEAGULL_PKI_SIGNER_TOKEN for the certificate authority")
+        return
+    if len(token) < MIN_SIGNER_TOKEN_LENGTH:
+        raise RuntimeError(
+            f"[preflight] SEAGULL_PKI_SIGNER_TOKEN must be at least {MIN_SIGNER_TOKEN_LENGTH} characters"
+        )
 
 
 def _require_cmd(name: str) -> None:
@@ -158,6 +234,9 @@ def run() -> bool:
                 f"[preflight] {label} is not readable by the edge container at {path}; "
                 f"run: chmod g+r {path}"
             )
+
+    _check_internal_exposure()
+    _ensure_signer_token()
 
     mtls_reissued = False
     if mtls_enabled:
