@@ -276,6 +276,8 @@ The portal targets Node 20+ and npm 10+; the backend runs Python 3.12.
 | [auth/rate-limiting.md](docs/auth/rate-limiting.md) | Shared limit windows and how they degrade without Redis. |
 | [admin/audit-chain.md](docs/admin/audit-chain.md) | Audit chain linking, verification and retention anchors. |
 | [agents/authentication.md](docs/agents/authentication.md) | Agent credential validity and the last-seen throttle. |
+| [agents/certificate-authority.md](docs/agents/certificate-authority.md) | Where agent certificates are signed and what the backend no longer holds. |
+| [deployment/container-topology.md](docs/deployment/container-topology.md) | Container networks, what each hop may reach and what is published to the host. |
 | [ingest/admission.md](docs/ingest/admission.md) | Event contract, body ceilings and dead letter operations. |
 | [workers/architecture.md](docs/workers/architecture.md) | Worker group manager behavior. |
 | [workers/analytical_sinks.md](docs/workers/analytical_sinks.md) | Outbox delivery to ClickHouse and Elasticsearch. |
