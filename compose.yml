@@ -1,5 +1,13 @@
 networks:
-  seagull:
+  edge:
+    driver: bridge
+  app:
+    driver: bridge
+  data:
+    driver: bridge
+  observability:
+    driver: bridge
+  pki:
     driver: bridge
 
 volumes:
@@ -38,7 +46,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
-      - seagull
+      - data
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -69,7 +77,7 @@ services:
       - ./infra/redis:/etc/seagull/redis:ro
       - redis-data:/data
     networks:
-      - seagull
+      - data
     healthcheck:
       test: ["CMD", "/bin/sh", "/etc/seagull/redis/healthcheck.sh"]
       interval: 5s
@@ -95,9 +103,9 @@ services:
     volumes:
       - elastic-data:/usr/share/elasticsearch/data
     ports:
-      - "${ELASTICSEARCH_PORT:-}:9200"
+      - "${ELASTICSEARCH_PORT:-127.0.0.1:9200}:9200"
     networks:
-      - seagull
+      - data
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -124,10 +132,10 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
     ports:
-      - "${CLICKHOUSE_HTTP_PORT:-}:8123"
-      - "${CLICKHOUSE_NATIVE_PORT:-}:9000"
+      - "${CLICKHOUSE_HTTP_PORT:-127.0.0.1:8123}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-127.0.0.1:9000}:9000"
     networks:
-      - seagull
+      - data
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8123/ping | grep -q 'Ok.'"]
       interval: 10s
@@ -146,18 +154,19 @@ services:
       - --smp=1
       - --memory=768M
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr=internal://redpanda:9092,external://${SEAGULL_REDPANDA_EXTERNAL_HOST:-127.0.0.1}:${SEAGULL_REDPANDA_KAFKA_PORT:-19092}
+      - --advertise-kafka-addr=internal://redpanda:9092,external://${SEAGULL_REDPANDA_EXTERNAL_HOST:-127.0.0.1}:${SEAGULL_REDPANDA_ADVERTISED_KAFKA_PORT:-19092}
       - --pandaproxy-addr=internal://0.0.0.0:8082
       - --advertise-pandaproxy-addr=internal://redpanda:8082
       - --rpc-addr=0.0.0.0:33145
       - --advertise-rpc-addr=redpanda:33145
     ports:
-      - "${SEAGULL_REDPANDA_KAFKA_PORT:-}:19092"
-      - "${SEAGULL_REDPANDA_ADMIN_PORT:-}:9644"
+      - "${SEAGULL_REDPANDA_KAFKA_PORT:-127.0.0.1:19092}:19092"
+      - "${SEAGULL_REDPANDA_ADMIN_PORT:-127.0.0.1:9644}:9644"
     volumes:
       - redpanda-data:/var/lib/redpanda/data
     networks:
-      - seagull
+      - data
+      - observability
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' >/dev/null 2>&1"]
       interval: 10s
@@ -190,8 +199,49 @@ services:
     mem_limit: 256m
     cpus: "0.25"
     networks:
-      - seagull
+      - data
     restart: "no"
+
+  # Certificate authority
+
+  seagull-pki:
+    build: ./pki
+    container_name: seagull-pki
+    environment:
+      SEAGULL_PKI_SIGNER_HOST: "0.0.0.0"
+      SEAGULL_PKI_SIGNER_PORT: ${SEAGULL_PKI_SIGNER_PORT:-8460}
+      SEAGULL_PKI_SIGNER_TOKEN: ${SEAGULL_PKI_SIGNER_TOKEN:-}
+      SEAGULL_PKI_SIGNER_TOKEN_FILE: ${SEAGULL_PKI_SIGNER_TOKEN_FILE:-}
+      SEAGULL_PKI_SIGNER_MAX_BODY_BYTES: ${SEAGULL_PKI_SIGNER_MAX_BODY_BYTES:-65536}
+      SEAGULL_AGENT_MTLS_CA_CERT_FILE: /etc/seagull/pki/agent-ca.crt
+      SEAGULL_AGENT_MTLS_CA_KEY_FILE: /etc/seagull/pki/agent-ca.key
+      SEAGULL_AGENT_CERT_VALIDITY_DAYS: ${SEAGULL_AGENT_CERT_VALIDITY_DAYS:-365}
+    volumes:
+      - ./secrets/pki/agent-ca.crt:/etc/seagull/pki/agent-ca.crt:ro
+      - ./secrets/pki/agent-ca.key:/etc/seagull/pki/agent-ca.key:ro
+    group_add:
+      - "${SEAGULL_PKI_GID:-0}"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    cpus: "0.25"
+    networks:
+      - pki
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          python -c "import sys,urllib.request;
+          u=urllib.request.urlopen('http://127.0.0.1:${SEAGULL_PKI_SIGNER_PORT:-8460}/health', timeout=2);
+          sys.exit(0 if u.getcode()==200 else 1)"
+      interval: 15s
+      timeout: 4s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
 
   # Backend
 
@@ -216,16 +266,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      seagull-pki:
+        condition: service_started
     ports:
-      - "${SEAGULL_BACKEND_PORT:-}:8000"
+      - "${SEAGULL_BACKEND_PORT:-127.0.0.1:8000}:8000"
     environment:
       SEAGULL_ENV: ${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}
       SEAGULL_AGENT_MTLS_IDENTITY_BINDING: ${SEAGULL_AGENT_MTLS_IDENTITY_BINDING:-enforce}
       SEAGULL_AGENT_CERT_RENEWAL: ${SEAGULL_AGENT_CERT_RENEWAL:-enabled}
-      SEAGULL_AGENT_CERT_VALIDITY_DAYS: ${SEAGULL_AGENT_CERT_VALIDITY_DAYS:-365}
-      SEAGULL_AGENT_MTLS_CA_CERT_FILE: /etc/seagull/pki/agent-ca.crt
-      SEAGULL_AGENT_MTLS_CA_KEY_FILE: /etc/seagull/pki/agent-ca.key
       SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE: ${SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE-/etc/seagull/pki/server-ca.crt}
+      SEAGULL_PKI_SIGNER_URL: ${SEAGULL_PKI_SIGNER_URL:-http://seagull-pki:8460}
+      SEAGULL_PKI_SIGNER_TOKEN: ${SEAGULL_PKI_SIGNER_TOKEN:-}
+      SEAGULL_PKI_SIGNER_TOKEN_FILE: ${SEAGULL_PKI_SIGNER_TOKEN_FILE:-}
+      SEAGULL_PKI_SIGNER_TIMEOUT_SECONDS: ${SEAGULL_PKI_SIGNER_TIMEOUT_SECONDS:-10}
       SEAGULL_AGENT_PUBLIC_HOST: ${SEAGULL_AGENT_PUBLIC_HOST:-${SEAGULL_CADDY_DOMAIN:-}}
       SEAGULL_AGENT_MTLS_PORT: ${SEAGULL_AGENT_MTLS_PORT:-8444}
       SEAGULL_AGENT_ENROLL_PORT: ${SEAGULL_AGENT_ENROLL_PORT:-8445}
@@ -379,14 +432,8 @@ services:
     volumes:
       - ./rules:/app/rules:ro
       - ./backend/data/geoip:/app/data/geoip:ro
-      - ./secrets/pki/agent-ca.crt:/etc/seagull/pki/agent-ca.crt:ro
-      - ./secrets/pki/agent-ca.key:/etc/seagull/pki/agent-ca.key:ro
       - ./secrets/pki/server-ca.crt:/etc/seagull/pki/server-ca.crt:ro
       - agent-packages:/var/lib/seagull/agent-packages
-    # agent-ca.key is 0640 (host owner + PKI group); uid 10001 reads it via this
-    # supplementary group instead of the key being world-readable.
-    group_add:
-      - "${SEAGULL_PKI_GID:-0}"
     tmpfs:
       # Fresh on every container (re)start so multiprocess series don't carry
       # over stale per-pid files. Mode is pinned to 1777 because the daemon's
@@ -399,7 +446,10 @@ services:
     mem_limit: 1024m
     cpus: "1.00"
     networks:
-      - seagull
+      - app
+      - data
+      - observability
+      - pki
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -543,7 +593,8 @@ services:
     mem_limit: 1536m
     cpus: "1.5"
     networks:
-      - seagull
+      - data
+      - observability
     healthcheck:
       test: ["CMD", "python", "-m", "app.workers.manager", "health", "ingest"]
       interval: 20s
@@ -657,7 +708,8 @@ services:
     mem_limit: 1280m
     cpus: "1.00"
     networks:
-      - seagull
+      - data
+      - observability
     healthcheck:
       test: ["CMD", "python", "-m", "app.workers.manager", "health", "intelligence"]
       interval: 20s
@@ -725,7 +777,8 @@ services:
     mem_limit: 384m
     cpus: "0.30"
     networks:
-      - seagull
+      - data
+      - observability
     healthcheck:
       test: ["CMD", "python", "-m", "app.workers.manager", "health", "maintenance"]
       interval: 20s
@@ -745,7 +798,7 @@ services:
       seagull-backend:
         condition: service_healthy
     ports:
-      - "${SEAGULL_PORTAL_PORT:-}:8080"
+      - "${SEAGULL_PORTAL_PORT:-127.0.0.1:8080}:8080"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -753,7 +806,8 @@ services:
     mem_limit: 512m
     cpus: "0.50"
     networks:
-      - seagull
+      - edge
+      - app
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/ >/dev/null 2>&1"]
       interval: 10s
@@ -809,7 +863,8 @@ services:
     mem_limit: 128m
     cpus: "0.25"
     networks:
-      - seagull
+      - edge
+      - app
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -840,15 +895,11 @@ services:
       SERVER_REWRITEBASEPATH: "true"
       SERVER_PUBLICBASEURL: ${SEAGULL_KIBANA_PUBLIC_BASE_URL:-https://localhost/kibana}
     ports:
-      - "${KIBANA_PORT:-}:5601"
+      - "${KIBANA_PORT:-127.0.0.1:5601}:5601"
     networks:
-      - seagull
+      - data
     restart: unless-stopped
 
-  # Internal metrics store. Scrapes Seagull services over the private `seagull`
-  # network and is queried only by the backend observability API (server-side).
-  # Intentionally NOT published to the host (no `ports:`) and NOT profile-gated:
-  # it is core infrastructure for the native observability feature.
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: seagull-prometheus
@@ -871,7 +922,7 @@ services:
     mem_limit: 512m
     cpus: "0.50"
     networks:
-      - seagull
+      - observability
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
       interval: 20s
