@@ -14,7 +14,7 @@ LOCAL_OVERRIDE_FILE = "compose.override.yml"
 
 PROD_CORE_SERVICES = [
     "postgres", "redis", "elasticsearch", "clickhouse",
-    "seagull-backend", "seagull-ingest-pipeline",
+    "seagull-pki", "seagull-backend", "seagull-ingest-pipeline",
     "seagull-intelligence-worker", "seagull-maintenance-worker",
     "seagull-portal", "caddy",
 ]
