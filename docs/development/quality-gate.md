@@ -9,7 +9,7 @@ the exact pipeline locally with the same command.
 bash scripts/ci/backend-quality.sh
 ```
 
-It runs four checks, in the order that fails cheapest first:
+It runs four checks over the backend, in the order that fails cheapest first:
 
 | Check | Command | What it protects |
 |---|---|---|
@@ -17,6 +17,13 @@ It runs four checks, in the order that fails cheapest first:
 | import contracts | `lint-imports` | the ten feature-tier contracts in `backend/pyproject.toml` |
 | tests | `pytest tests` | the full backend suite, not a subset |
 | dependency audit | `pip-audit -r requirements.lock --strict` | known advisories in pinned dependencies |
+
+The certificate authority in `pki/` is a separate image with a separate
+dependency lock, and it holds the only copy of the agent CA private key, so it
+gets the same three checks that apply to it: `ruff check signer tests`,
+`pytest tests` and `pip-audit -r requirements.lock`. Both audits read the same
+accepted-advisory list, so a package pinned in two locks cannot be accepted in
+one and rejected in the other.
 
 The pytest step needs no services. Tests that require a real PostgreSQL —
 concurrency of session claims, of the audit chain, of the outbox lease — skip
