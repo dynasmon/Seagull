@@ -1,41 +1,12 @@
-from datetime import datetime, timedelta, timezone
-
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from fastapi import HTTPException
 
 from app.features.agents import auth, certs
-
-
-def _make_ca(tmp_path, common_name="Seagull Agent CA"):
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
-    now = datetime.now(timezone.utc)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(minutes=1))
-        .not_valid_after(now + timedelta(days=30))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-        .sign(key, hashes.SHA256())
-    )
-    cert_path = tmp_path / "agent-ca.crt"
-    key_path = tmp_path / "agent-ca.key"
-    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    key_path.write_bytes(
-        key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    )
-    return cert, cert_path, key_path
+from tests import agent_signing_stub
 
 
 def _make_csr_pem(agent_id, key=None):
@@ -56,100 +27,80 @@ def _make_csr_pem(agent_id, key=None):
 
 
 @pytest.fixture
-def signing_ca(tmp_path, monkeypatch):
-    cert, cert_path, key_path = _make_ca(tmp_path)
-    monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_CERT_FILE", str(cert_path))
-    monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_KEY_FILE", str(key_path))
-    monkeypatch.delenv("SEAGULL_AGENT_CERT_RENEWAL", raising=False)
-    monkeypatch.delenv("SEAGULL_AGENT_CERT_VALIDITY_DAYS", raising=False)
-    return cert
-
-
-class TestValidateCsr:
-    def test_accepts_ec_p256(self):
-        csr_pem, _ = _make_csr_pem("agent-core-1")
-        csr = certs.validate_csr(csr_pem, "agent-core-1")
-        assert isinstance(csr.public_key(), ec.EllipticCurvePublicKey)
-
-    def test_accepts_rsa_2048(self):
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        csr_pem, _ = _make_csr_pem("agent-core-1", key=key)
-        csr = certs.validate_csr(csr_pem, "agent-core-1")
-        assert isinstance(csr.public_key(), rsa.RSAPublicKey)
-
-    def test_rejects_invalid_pem(self):
-        with pytest.raises(certs.CertificateRequestError) as exc:
-            certs.validate_csr("not a csr", "agent-core-1")
-        assert exc.value.reason == "invalid_pem"
-
-    def test_rejects_cn_mismatch(self):
-        csr_pem, _ = _make_csr_pem("agent-evil")
-        with pytest.raises(certs.CertificateRequestError) as exc:
-            certs.validate_csr(csr_pem, "agent-core-1")
-        assert exc.value.reason == "subject_mismatch"
-
-    def test_rejects_weak_rsa(self):
-        key = rsa.generate_private_key(public_exponent=65537, key_size=1024)
-        csr_pem, _ = _make_csr_pem("agent-core-1", key=key)
-        with pytest.raises(certs.CertificateRequestError) as exc:
-            certs.validate_csr(csr_pem, "agent-core-1")
-        assert exc.value.reason == "weak_key"
-
-    def test_rejects_unlisted_curve(self):
-        key = ec.generate_private_key(ec.SECP224R1())
-        csr_pem, _ = _make_csr_pem("agent-core-1", key=key)
-        with pytest.raises(certs.CertificateRequestError) as exc:
-            certs.validate_csr(csr_pem, "agent-core-1")
-        assert exc.value.reason == "weak_key"
+def signing_service(monkeypatch):
+    with agent_signing_stub.serving() as stub:
+        monkeypatch.setenv("SEAGULL_PKI_SIGNER_URL", stub.url)
+        monkeypatch.setenv("SEAGULL_PKI_SIGNER_TOKEN", agent_signing_stub.TOKEN)
+        monkeypatch.delenv("SEAGULL_AGENT_CERT_RENEWAL", raising=False)
+        yield stub
 
 
 class TestRenewAgentCertificate:
-    def test_issues_client_cert(self, signing_ca):
+    def test_returns_the_certificate_the_authority_issued(self, signing_service):
         csr_pem, key = _make_csr_pem("agent-core-1")
         issued = certs.renew_agent_certificate("agent-core-1", csr_pem)
-        cert = x509.load_pem_x509_certificate(issued.certificate_pem.encode())
+        certificate = x509.load_pem_x509_certificate(issued.certificate_pem.encode())
 
         assert issued.agent_id == "agent-core-1"
-        assert cert.issuer == signing_ca.subject
-        cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-        assert cn == "agent-core-1"
-        eku = cert.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
-        assert ExtendedKeyUsageOID.CLIENT_AUTH in eku
-        constraints = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
-        assert constraints.ca is False
-        assert cert.public_key().public_numbers() == key.public_key().public_numbers()
-        assert format(cert.serial_number, "x") == issued.serial_hex
+        assert certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value == "agent-core-1"
+        assert certificate.public_key().public_numbers() == key.public_key().public_numbers()
+        assert ExtendedKeyUsageOID.CLIENT_AUTH in certificate.extensions.get_extension_for_class(
+            x509.ExtendedKeyUsage
+        ).value
+        assert format(certificate.serial_number, "x") == issued.serial_hex
         assert "BEGIN CERTIFICATE" in issued.ca_pem
 
-    def test_validity_days_override(self, signing_ca, monkeypatch):
-        monkeypatch.setenv("SEAGULL_AGENT_CERT_VALIDITY_DAYS", "7")
+    def test_asks_the_authority_for_the_authenticated_identity(self, signing_service):
         csr_pem, _ = _make_csr_pem("agent-core-1")
-        issued = certs.renew_agent_certificate("agent-core-1", csr_pem)
-        lifetime = issued.not_after - issued.not_before
-        assert timedelta(days=6) < lifetime <= timedelta(days=7, minutes=2)
+        certs.renew_agent_certificate("agent-core-1", csr_pem)
+        assert signing_service.requests == ["agent-core-1"]
 
-    def test_disabled_renewal(self, signing_ca, monkeypatch):
+    def test_records_the_issued_certificate(self, signing_service, monkeypatch):
+        rows = []
+        monkeypatch.setattr(certs.repository, "save_certificate", lambda db, row: rows.append(row))
+        csr_pem, _ = _make_csr_pem("agent-core-1")
+        issued = certs.renew_agent_certificate("agent-core-1", csr_pem, db=object())
+
+        assert len(rows) == 1
+        assert rows[0].agent_id == "agent-core-1"
+        assert rows[0].serial_hex == issued.serial_hex
+        assert rows[0].fingerprint_sha256 == issued.fingerprint_sha256
+        assert rows[0].subject.startswith("CN=agent-core-1")
+        assert rows[0].issued_at == issued.not_before
+        assert rows[0].expires_at == issued.not_after
+
+    def test_disabled_renewal_never_reaches_the_authority(self, signing_service, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_CERT_RENEWAL", "disabled")
         csr_pem, _ = _make_csr_pem("agent-core-1")
         with pytest.raises(certs.CertificateRenewalDisabled):
             certs.renew_agent_certificate("agent-core-1", csr_pem)
+        assert signing_service.requests == []
 
-    def test_ca_missing(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_CERT_FILE", str(tmp_path / "missing.crt"))
-        monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_KEY_FILE", str(tmp_path / "missing.key"))
-        monkeypatch.delenv("SEAGULL_AGENT_CERT_RENEWAL", raising=False)
+    def test_reports_a_rejected_request(self, signing_service):
+        csr_pem, _ = _make_csr_pem("agent-evil")
+        with pytest.raises(certs.CertificateRequestError) as exc:
+            certs.renew_agent_certificate("agent-core-1", csr_pem)
+        assert exc.value.reason == "subject_mismatch"
+
+    def test_reports_an_authority_that_cannot_sign(self, signing_service):
+        signing_service.unavailable = True
         csr_pem, _ = _make_csr_pem("agent-core-1")
         with pytest.raises(certs.CertificateAuthorityUnavailable):
             certs.renew_agent_certificate("agent-core-1", csr_pem)
 
-    def test_non_ca_certificate_rejected(self, tmp_path, monkeypatch, signing_ca):
+    def test_reports_an_authority_that_is_not_reachable(self, signing_service, monkeypatch):
+        monkeypatch.setenv("SEAGULL_PKI_SIGNER_URL", "http://127.0.0.1:1")
         csr_pem, _ = _make_csr_pem("agent-core-1")
-        issued = certs.renew_agent_certificate("agent-core-1", csr_pem)
-        leaf_path = tmp_path / "leaf.crt"
-        leaf_path.write_text(issued.certificate_pem)
-        monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_CERT_FILE", str(leaf_path))
         with pytest.raises(certs.CertificateAuthorityUnavailable):
             certs.renew_agent_certificate("agent-core-1", csr_pem)
+
+
+class TestIssueEnrollmentCertificate:
+    def test_issues_while_renewal_is_disabled(self, signing_service, monkeypatch):
+        monkeypatch.setenv("SEAGULL_AGENT_CERT_RENEWAL", "disabled")
+        csr_pem, _ = _make_csr_pem("agent-core-1")
+        issued = certs.issue_enrollment_certificate("agent-core-1", csr_pem)
+        assert "BEGIN CERTIFICATE" in issued.certificate_pem
 
 
 class _StubRequest:
