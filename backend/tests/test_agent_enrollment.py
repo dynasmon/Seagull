@@ -11,6 +11,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 from fastapi import HTTPException
 
+from tests import agent_signing_stub
+
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_PASSWORD", "test-password")
@@ -35,17 +37,9 @@ def _make_ca(tmp_path, common_name="Seagull Agent CA"):
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
         .sign(key, hashes.SHA256())
     )
-    cert_path = tmp_path / "agent-ca.crt"
-    key_path = tmp_path / "agent-ca.key"
+    cert_path = tmp_path / "server-ca.crt"
     cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    key_path.write_bytes(
-        key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    )
-    return cert, cert_path, key_path
+    return cert, cert_path
 
 
 def _make_csr_pem(agent_id):
@@ -66,16 +60,22 @@ def _make_csr_pem(agent_id):
 
 
 @pytest.fixture
-def signing_ca(tmp_path, monkeypatch):
-    cert, cert_path, key_path = _make_ca(tmp_path)
-    monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_CERT_FILE", str(cert_path))
-    monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_KEY_FILE", str(key_path))
+def server_ca(tmp_path, monkeypatch):
+    cert, cert_path = _make_ca(tmp_path)
     monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(cert_path))
     return cert
 
 
+@pytest.fixture
+def signing_service(monkeypatch):
+    with agent_signing_stub.serving() as stub:
+        monkeypatch.setenv("SEAGULL_PKI_SIGNER_URL", stub.url)
+        monkeypatch.setenv("SEAGULL_PKI_SIGNER_TOKEN", agent_signing_stub.TOKEN)
+        yield stub
+
+
 class TestIssueEnrollmentCertificate:
-    def test_issues_even_when_renewal_disabled(self, signing_ca, monkeypatch):
+    def test_issues_even_when_renewal_disabled(self, signing_service, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_CERT_RENEWAL", "disabled")
         issued = certs.issue_enrollment_certificate("agent-x", _make_csr_pem("agent-x"))
         assert issued.agent_id == "agent-x"
@@ -83,25 +83,24 @@ class TestIssueEnrollmentCertificate:
         cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
         assert cn == "agent-x"
 
-    def test_rejects_cn_mismatch(self, signing_ca):
+    def test_rejects_cn_mismatch(self, signing_service):
         with pytest.raises(certs.CertificateRequestError):
             certs.issue_enrollment_certificate("agent-x", _make_csr_pem("agent-y"))
 
-    def test_ca_unavailable(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_CERT_FILE", str(tmp_path / "missing.crt"))
-        monkeypatch.setenv("SEAGULL_AGENT_MTLS_CA_KEY_FILE", str(tmp_path / "missing.key"))
+    def test_ca_unavailable(self, signing_service):
+        signing_service.unavailable = True
         with pytest.raises(certs.CertificateAuthorityUnavailable):
             certs.issue_enrollment_certificate("agent-x", _make_csr_pem("agent-x"))
 
 
 class TestServerCaBundle:
-    def test_returns_pem_when_present(self, signing_ca):
+    def test_returns_pem_when_present(self, server_ca):
         bundle = certs.server_ca_bundle()
         assert bundle is not None
         assert "BEGIN CERTIFICATE" in bundle
 
-    def test_returns_complete_ca_bundle(self, signing_ca, tmp_path, monkeypatch):
-        pem = signing_ca.public_bytes(serialization.Encoding.PEM)
+    def test_returns_complete_ca_bundle(self, server_ca, tmp_path, monkeypatch):
+        pem = server_ca.public_bytes(serialization.Encoding.PEM)
         bundle_path = tmp_path / "bundle.crt"
         bundle_path.write_bytes(pem + pem)
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(bundle_path))
@@ -117,13 +116,13 @@ class TestServerCaBundle:
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(bad))
         assert certs.server_ca_bundle() is None
 
-    def test_returns_none_for_trailing_content(self, signing_ca, tmp_path, monkeypatch):
+    def test_returns_none_for_trailing_content(self, server_ca, tmp_path, monkeypatch):
         bundle_path = tmp_path / "trailing.crt"
-        bundle_path.write_bytes(signing_ca.public_bytes(serialization.Encoding.PEM) + b"unexpected")
+        bundle_path.write_bytes(server_ca.public_bytes(serialization.Encoding.PEM) + b"unexpected")
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(bundle_path))
         assert certs.server_ca_bundle() is None
 
-    def test_returns_none_for_end_entity_certificate(self, signing_ca, tmp_path, monkeypatch):
+    def test_returns_none_for_end_entity_certificate(self, signing_service, tmp_path, monkeypatch):
         issued = certs.issue_enrollment_certificate("agent-x", _make_csr_pem("agent-x"))
         bundle_path = tmp_path / "leaf.crt"
         bundle_path.write_text(issued.certificate_pem)
@@ -190,7 +189,7 @@ def _stub_enroll_persistence(monkeypatch):
 
 
 class TestEnrollService:
-    def test_enroll_with_csr_returns_certificate(self, signing_ca, monkeypatch):
+    def test_enroll_with_csr_returns_certificate(self, signing_service, server_ca, monkeypatch):
         _allow_rate_limit(monkeypatch)
         _stub_enroll_persistence(monkeypatch)
         audits = []
@@ -227,7 +226,7 @@ class TestEnrollService:
         assert out.certificate is None
         assert out.credential.renewal_token == "abt.renewal"
 
-    def test_enroll_rejects_bad_csr_subject(self, signing_ca, monkeypatch):
+    def test_enroll_rejects_bad_csr_subject(self, signing_service, monkeypatch):
         _allow_rate_limit(monkeypatch)
         _stub_enroll_persistence(monkeypatch)
 
